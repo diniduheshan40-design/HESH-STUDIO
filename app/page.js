@@ -325,7 +325,7 @@ export default function Home() {
         const aiMsg = { role: "assistant", content: reply, time: formatTime() };
         saveHistory({ ...conversations, [activeBot]: [...currentBotConvs, aiMsg] });
       } else {
-        const errorMsg = { role: "assistant", content: "මචං පොඩි glitch එකක් උනා, ආයේ කියපන්කො බලන්න.", time: formatTime() };
+        const errorMsg = { role: "assistant", content: "අනේ මැනික ඒක මට ආයෙ කියන්න පුලුවන්ද 🥺❤️‍🩹.", time: formatTime() };
         saveHistory({ ...conversations, [activeBot]: [...currentBotConvs, errorMsg] });
       }
     } catch (err) {
