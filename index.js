@@ -28,7 +28,7 @@ const activeBots = new Map();
 const commands = new Map();
 
 /**
- * commands ෆෝල්ඩරයේ ඇති සියලුම js files dynamic load කිරීම
+ * commands ෆෝල්ඩරයේ ඇති සියලුම js files load කිරීම
  */
 function loadCommands() {
     commands.clear();
@@ -43,7 +43,7 @@ function loadCommands() {
     for (const file of commandFiles) {
         try {
             const filePath = path.join(cmdDir, file);
-            delete require.cache[require.resolve(filePath)]; // Hot-reload support
+            delete require.cache[require.resolve(filePath)];
             const command = require(filePath);
 
             if (command.name && typeof command.execute === 'function') {
@@ -57,8 +57,29 @@ function loadCommands() {
     console.log(chalk.cyan(`[${BOT_TAG}] Total commands loaded: ${commands.size}`));
 }
 
-// Commands Load කරගැනීම
 loadCommands();
+
+/**
+ * Message එකකින් Text එක හරියටම නිස්සාරණය කරගන්නා Helper Function එක
+ */
+function extractMessageBody(m) {
+    if (!m) return '';
+    if (m.ephemeralMessage) m = m.ephemeralMessage.message;
+    if (m.viewOnceMessageV2) m = m.viewOnceMessageV2.message;
+    if (m.viewOnceMessage) m = m.viewOnceMessage.message;
+    if (m.documentWithCaptionMessage) m = m.documentWithCaptionMessage.message;
+
+    return (
+        m.conversation ||
+        m.extendedTextMessage?.text ||
+        m.imageMessage?.caption ||
+        m.videoMessage?.caption ||
+        m.templateButtonReplyMessage?.selectedId ||
+        m.buttonsResponseMessage?.selectedButtonId ||
+        m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+        ''
+    ).trim();
+}
 
 /**
  * Single Bot Instance Runner
@@ -107,14 +128,12 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }, 3000);
 
             setTimeout(() => {
-                sendResponse(false, { error: 'Request timed out. Please check the number and try again.' });
+                sendResponse(false, { error: 'Request timed out. Please check number and try again.' });
             }, 25000);
         }
 
-        // Creds update
         sock.ev.on('creds.update', saveCreds);
 
-        // Connection Handling
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
 
@@ -128,7 +147,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     console.log(chalk.yellow(`[${BOT_TAG}] [${sessionId}] Reconnecting...`));
                     setTimeout(() => startSingleBot(sessionId), 5000);
                 } else {
-                    console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Session Expired/Logged Out.`));
+                    console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Session Logged Out.`));
                     await clearSession();
                     activeBots.delete(sessionId);
                 }
@@ -138,32 +157,24 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
-        // Message Handling (Modular Execution)
+        // Robust Message Event Listener
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            if (type !== 'notify') return;
+            if (type !== 'notify' && type !== 'append') return;
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            const m = msg.message;
-            const body = (
-                m.conversation ||
-                m.extendedTextMessage?.text ||
-                m.imageMessage?.caption ||
-                m.videoMessage?.caption ||
-                m.templateButtonReplyMessage?.selectedId ||
-                m.buttonsResponseMessage?.selectedButtonId ||
-                ''
-            ).trim();
-
             const from = msg.key.remoteJid;
+            if (from === 'status@broadcast') return; // Status updates මඟහරින්න
 
-            if (!body.startsWith(PREFIX)) return;
+            const body = extractMessageBody(msg.message);
+            if (!body || !body.startsWith(PREFIX)) return;
 
             const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
             const command = commands.get(cmdName.toLowerCase());
 
+            console.log(chalk.magenta(`[${BOT_TAG}] [${sessionId}] Command Triggered: "${cmdName}" from ${from}`));
+
             if (command) {
-                console.log(chalk.magenta(`[${BOT_TAG}] [${sessionId}] Executing: ${cmdName} from ${from}`));
                 try {
                     await command.execute({
                         sock,
@@ -177,8 +188,10 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     });
                 } catch (cmdErr) {
                     console.error(chalk.red(`Error executing command ${cmdName}:`), cmdErr);
-                    await sock.sendMessage(from, { text: `❌ Error executing command: ${cmdErr.message}` }, { quoted: msg });
+                    await sock.sendMessage(from, { text: `❌ Error: ${cmdErr.message}` }, { quoted: msg });
                 }
+            } else {
+                console.log(chalk.yellow(`[${BOT_TAG}] Command not found in commands map: "${cmdName}"`));
             }
         });
 
