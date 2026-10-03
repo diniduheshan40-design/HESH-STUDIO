@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const mongoose = require('mongoose');
 const express = require('express');
 const chalk = require('chalk');
@@ -23,14 +25,47 @@ const BOT_TAG = "DARK-DINU";
 const PREFIX = ".";
 
 const activeBots = new Map();
+const commands = new Map();
 
 /**
- * Single Bot Starter
+ * commands ෆෝල්ඩරයේ ඇති සියලුම js files dynamic load කිරීම
+ */
+function loadCommands() {
+    commands.clear();
+    const cmdDir = path.join(__dirname, 'commands');
+
+    if (!fs.existsSync(cmdDir)) {
+        fs.mkdirSync(cmdDir, { recursive: true });
+    }
+
+    const commandFiles = fs.readdirSync(cmdDir).filter(file => file.endsWith('.js'));
+
+    for (const file of commandFiles) {
+        try {
+            const filePath = path.join(cmdDir, file);
+            delete require.cache[require.resolve(filePath)]; // Hot-reload support
+            const command = require(filePath);
+
+            if (command.name && typeof command.execute === 'function') {
+                commands.set(command.name.toLowerCase(), command);
+                console.log(chalk.green(`[CMD] Loaded: ${command.name}`));
+            }
+        } catch (error) {
+            console.error(chalk.red(`[CMD ERROR] Failed to load ${file}:`), error);
+        }
+    }
+    console.log(chalk.cyan(`[${BOT_TAG}] Total commands loaded: ${commands.size}`));
+}
+
+// Commands Load කරගැනීම
+loadCommands();
+
+/**
+ * Single Bot Instance Runner
  */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
 
-    // Response helper to prevent multiple responses
     const sendResponse = (status, data) => {
         if (!responded && res && !res.headersSent) {
             responded = true;
@@ -46,7 +81,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             version,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false,
-            // Chrome (Ubuntu) ලෙස identify කරවීමෙන් WhatsApp block වීම වළකී
             browser: Browsers.ubuntu('Chrome'),
             auth: {
                 creds: state.creds,
@@ -56,11 +90,10 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             syncFullHistory: false
         });
 
-        // අලුත් අංකයක් සඳහා Pairing Code Request කිරීම
+        // Pairing Code Request Handler
         if (!sock.authState.creds.registered && phoneNumber) {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-            
-            // Socket එක initialize වීමට තත්පර 3ක් ලබා දීම
+
             setTimeout(async () => {
                 try {
                     console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
@@ -73,7 +106,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 }
             }, 3000);
 
-            // Timeout Fallback (තත්පර 25කින් code එක නාවොත් error එකක් යැවීම)
             setTimeout(() => {
                 sendResponse(false, { error: 'Request timed out. Please check the number and try again.' });
             }, 25000);
@@ -106,42 +138,46 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
-        // Basic Commands
+        // Message Handling (Modular Execution)
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             if (type !== 'notify') return;
             const msg = messages[0];
-            if (!msg.message || msg.key.fromMe) return;
+            if (!msg || !msg.message) return;
+
+            const m = msg.message;
+            const body = (
+                m.conversation ||
+                m.extendedTextMessage?.text ||
+                m.imageMessage?.caption ||
+                m.videoMessage?.caption ||
+                m.templateButtonReplyMessage?.selectedId ||
+                m.buttonsResponseMessage?.selectedButtonId ||
+                ''
+            ).trim();
 
             const from = msg.key.remoteJid;
-            let body = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
             if (!body.startsWith(PREFIX)) return;
 
-            const [cmd, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
-            const command = cmd.toLowerCase();
+            const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
+            const command = commands.get(cmdName.toLowerCase());
 
-            switch (command) {
-                case 'ping': {
-                    const start = Date.now();
-                    const latency = Date.now() - start;
-                    await sock.sendMessage(from, { 
-                        text: `*Pong!* 🏓\nSpeed: *${latency}ms*\nSession: *${sessionId}*` 
-                    }, { quoted: msg });
-                    break;
-                }
-
-                case 'alive': {
-                    await sock.sendMessage(from, { 
-                        text: `*👋 DARK-DINU MD Multi-Bot is Online!*\n⚡ Database: *MongoDB*\n⚙️ Active Bots: *${activeBots.size}*` 
-                    }, { quoted: msg });
-                    break;
-                }
-
-                case 'menu': {
-                    await sock.sendMessage(from, { 
-                        text: `╭━━〔 *${BOT_TAG}* 〕━━╮\n│ .ping\n│ .alive\n│ .menu\n╰━━━━━━━━━━━━━╯` 
-                    }, { quoted: msg });
-                    break;
+            if (command) {
+                console.log(chalk.magenta(`[${BOT_TAG}] [${sessionId}] Executing: ${cmdName} from ${from}`));
+                try {
+                    await command.execute({
+                        sock,
+                        msg,
+                        from,
+                        args,
+                        body,
+                        sessionId,
+                        commands,
+                        activeBotsCount: activeBots.size
+                    });
+                } catch (cmdErr) {
+                    console.error(chalk.red(`Error executing command ${cmdName}:`), cmdErr);
+                    await sock.sendMessage(from, { text: `❌ Error executing command: ${cmdErr.message}` }, { quoted: msg });
                 }
             }
         });
@@ -171,7 +207,7 @@ async function autoReconnectAllBots() {
     }
 }
 
-// ================= Web Interface =================
+// ================= Web Interface & Pair APIs =================
 
 app.get('/', (req, res) => {
     res.send(`
@@ -268,7 +304,6 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Pair API
 app.get('/pair', async (req, res) => {
     const { number, botId } = req.query;
     if (!number) {
@@ -278,23 +313,23 @@ app.get('/pair', async (req, res) => {
     await startSingleBot(sessionId, number, res);
 });
 
-// Status API
 app.get('/status', (req, res) => {
     res.json({
         botName: BOT_TAG,
         activeBotsCount: activeBots.size,
-        activeSessions: Array.from(activeBots.keys())
+        activeSessions: Array.from(activeBots.keys()),
+        commandsCount: commands.size
     });
 });
 
-// MongoDB Connection and Server Start
+// Database & Server Start
 mongoose.connect(MONGO_URL)
     .then(async () => {
         console.log(chalk.green(`[${BOT_TAG}] MongoDB Connected Successfully!`));
         await autoReconnectAllBots();
 
         app.listen(PORT, () => {
-            console.log(chalk.blue(`[${BOT_TAG}] Server & Pair Site running on port: ${PORT}`));
+            console.log(chalk.blue(`[${BOT_TAG}] Server running on port: ${PORT}`));
         });
     })
     .catch((err) => {
