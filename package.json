@@ -1,16 +1,17 @@
 {
-  "name": "hesh-ai-studio",
-  "version": "0.1.0",
-  "private": true,
+  "name": "dark-dinu-multibot",
+  "version": "2.0.0",
+  "description": "DARK-DINU Multi-Client WhatsApp Bot with MongoDB",
+  "main": "index.js",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "start": "node index.js"
   },
   "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@whiskeysockets/baileys": "^6.7.24",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.19.2",
+    "mongoose": "^8.3.1",
+    "pino": "^9.6.0"
   }
 }
-
