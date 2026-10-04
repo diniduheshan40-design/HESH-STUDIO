@@ -1,7 +1,7 @@
 {
   "name": "dark-dinu-multibot",
-  "version": "2.0.0",
-  "description": "DARK-DINU Multi-Client WhatsApp Bot with MongoDB",
+  "version": "2.1.0",
+  "description": "DARK-DINU Ultra-Fast Multi-Client WhatsApp Engine",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -9,9 +9,11 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.24",
     "chalk": "^4.1.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
     "mongoose": "^8.3.1",
+    "node-cache": "^5.1.2",
     "pino": "^9.6.0"
   }
 }
