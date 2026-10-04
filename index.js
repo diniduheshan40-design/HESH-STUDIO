@@ -17,13 +17,12 @@ const {
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
 
-// Global Error Guards (428 Connection Closed / Unhandled Rejections වලින් server crash වීම වළක්වයි)
+// Global Crash Handlers
 process.on('uncaughtException', (err) => {
-    console.error(chalk.red('[GLOBAL UNCAUGHT EXCEPTION]:'), err.message || err);
+    console.error(chalk.red('[UNCAUGHT EXCEPTION]:'), err.message || err);
 });
-
 process.on('unhandledRejection', (reason) => {
-    console.error(chalk.red('[GLOBAL UNHANDLED REJECTION]:'), reason?.message || reason);
+    console.error(chalk.red('[UNHANDLED REJECTION]:'), reason?.message || reason);
 });
 
 const app = express();
@@ -41,62 +40,81 @@ const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
 /**
- * ⚡ Live Hot-Reload Command Engine
- * Commands folder එකේ file එකක් save කළ සැනින් auto-reload වේ.
+ * ⚡ Smart Command Loader & Watcher
  */
-function loadCommands() {
-    commands.clear();
-    const cmdDir = path.join(__dirname, 'commands');
-    if (!fs.existsSync(cmdDir)) {
-        fs.mkdirSync(cmdDir, { recursive: true });
-    }
+function getCommandDirectory() {
+    const defaultPath = path.join(__dirname, 'commands');
+    if (fs.existsSync(defaultPath)) return defaultPath;
 
-    const files = fs.readdirSync(cmdDir).filter(f => f.endsWith('.js'));
-    for (const file of files) {
-        try {
-            const filePath = path.join(cmdDir, file);
-            delete require.cache[require.resolve(filePath)]; // පැරණි cache clear කරයි
-            const cmd = require(filePath);
+    // Capital letter check (Linux file system support)
+    const upperPath = path.join(__dirname, 'Commands');
+    if (fs.existsSync(upperPath)) return upperPath;
 
-            if (cmd.name && typeof cmd.execute === 'function') {
-                commands.set(cmd.name.toLowerCase(), cmd);
-
-                // Aliases support (.p, .speed etc.)
-                if (Array.isArray(cmd.alias)) {
-                    cmd.alias.forEach(alias => {
-                        commands.set(alias.toLowerCase(), cmd);
-                    });
-                }
-            }
-        } catch (e) {
-            console.error(chalk.red(`[FAIL] ${file}: ${e.message}`));
-        }
-    }
-    console.log(chalk.red.bold(`\n[${BOT_TAG}] CORE SYSTEMS LOADED: ${commands.size} COMMAND HANDLERS\n`));
+    fs.mkdirSync(defaultPath, { recursive: true });
+    return defaultPath;
 }
 
-// Initial Commands Load
+function loadCommands() {
+    commands.clear();
+    const cmdDir = getCommandDirectory();
+    console.log(chalk.cyan(`\n[${BOT_TAG}] Scanning directory: ${cmdDir}`));
+
+    try {
+        const files = fs.readdirSync(cmdDir);
+        console.log(chalk.gray(`Found files in directory: ${JSON.stringify(files)}`));
+
+        for (const file of files) {
+            if (file.endsWith('.js')) {
+                try {
+                    const filePath = path.join(cmdDir, file);
+                    delete require.cache[require.resolve(filePath)];
+                    const cmd = require(filePath);
+
+                    if (cmd && cmd.name && typeof cmd.execute === 'function') {
+                        const mainName = cmd.name.toLowerCase();
+                        commands.set(mainName, cmd);
+                        console.log(chalk.green(`[LOADED CMD] => ${PREFIX}${mainName} (from ${file})`));
+
+                        if (Array.isArray(cmd.alias)) {
+                            cmd.alias.forEach(alias => {
+                                commands.set(alias.toLowerCase(), cmd);
+                                console.log(chalk.blue(`   [ALIAS] => ${PREFIX}${alias.toLowerCase()}`));
+                            });
+                        }
+                    } else {
+                        console.log(chalk.yellow(`[SKIPPED] ${file} (Missing name or execute function)`));
+                    }
+                } catch (loadErr) {
+                    console.error(chalk.red(`[ERROR LOADING ${file}]:`), loadErr.message);
+                }
+            }
+        }
+    } catch (dirErr) {
+        console.error(chalk.red(`[DIRECTORY ERROR]:`), dirErr.message);
+    }
+    console.log(chalk.red.bold(`[${BOT_TAG}] TOTAL COMMAND HANDLERS ACTIVE: ${commands.size}\n`));
+}
+
+// Initial Loading
 loadCommands();
 
-// Commands Folder Hot-Reload Watcher
-const cmdFolder = path.join(__dirname, 'commands');
-let reloadTimeout;
+// Live File Watcher (Hot Reload)
+try {
+    const watchDir = getCommandDirectory();
+    let reloadDebounce;
+    fs.watch(watchDir, (eventType, filename) => {
+        if (filename && filename.endsWith('.js')) {
+            clearTimeout(reloadDebounce);
+            reloadDebounce = setTimeout(() => {
+                console.log(chalk.yellow(`[FILE MODIFIED] => ${filename}. Reloading modules...`));
+                loadCommands();
+            }, 300);
+        }
+    });
+} catch (e) {
+    console.log(chalk.gray("File watcher disabled or not supported."));
+}
 
-fs.watch(cmdFolder, (eventType, filename) => {
-    if (filename && filename.endsWith('.js')) {
-        clearTimeout(reloadTimeout);
-        reloadTimeout = setTimeout(() => {
-            console.log(chalk.yellow(`\n[${BOT_TAG}] File change detected: ${filename}`));
-            console.log(chalk.cyan(`[${BOT_TAG}] Live reloading commands...`));
-            loadCommands();
-            console.log(chalk.green(`[${BOT_TAG}] ✅ Commands reloaded successfully!\n`));
-        }, 300);
-    }
-});
-
-/**
- * WhatsApp message wrapper unpacker
- */
 function getMessageText(msg) {
     if (!msg || !msg.message) return '';
     let m = msg.message;
@@ -118,9 +136,6 @@ function getMessageText(msg) {
     ).trim();
 }
 
-/**
- * Single Bot Instance Engine
- */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
     const sendResponse = (status, data) => {
@@ -152,7 +167,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             keepAliveIntervalMs: 30000
         });
 
-        // Pairing Code Handler
         if (!sock.authState.creds.registered && phoneNumber) {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
             setTimeout(async () => {
@@ -171,7 +185,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
         sock.ev.on('creds.update', saveCreds);
 
-        // Connection Management & Safe Auto-Reconnect
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
 
@@ -202,7 +215,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
-        // Message Listener
+        // Command Execution Listener
         sock.ev.on('messages.upsert', async (chatUpdate) => {
             try {
                 if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
@@ -218,55 +231,24 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
                     const command = cmdName.toLowerCase();
 
-                    // 1. Registered Commands Execution (Commands Folder)
+                    // Commands Folder හරහා Execution
                     if (commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from}`));
                             await cmdModule.execute({
                                 sock,
                                 msg,
                                 from,
                                 args,
                                 body,
+                                prefix: PREFIX,
                                 sessionId,
                                 commands,
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
-                            console.error(chalk.red(`[EXECUTE ERR - ${command}]:`), err);
-                        }
-                        continue;
-                    }
-
-                    // 2. Built-in Fallbacks (Alive & Menu පමණි - ping මෙතැනින් ඉවත් කර ඇත)
-                    switch (command) {
-                        case 'alive': {
-                            await sock.sendMessage(from, { 
-                                text: `*⚡ DARK-DINU V2 ONLINE ⚡*\n\n` +
-                                      `🕶️ *Engine:* High-Speed Node Cache (Hot-Reload Enabled)\n` +
-                                      `🗄️ *Database:* MongoDB Cloud\n` +
-                                      `⚙️ *Prefix:* [ ${PREFIX} ]\n` +
-                                      `⚡ *Uptime Status:* 100% Zero Lag`
-                            }, { quoted: msg });
-                            break;
-                        }
-
-                        case 'menu': {
-                            let text = `┌───⊷ *DARK-DINU V2* ⊶\n`;
-                            text += `│ ✦ Prefix: [ ${PREFIX} ]\n`;
-                            text += `│ ✦ Nodes: ${activeBots.size}\n`;
-                            text += `└───⊷\n\n`;
-                            text += `┌───⊷ *COMMANDS* ⊶\n`;
-                            
-                            const uniqueCmds = new Set();
-                            commands.forEach((c) => uniqueCmds.add(c.name));
-                            uniqueCmds.forEach((name) => {
-                                text += `│ ⚡ ${PREFIX}${name}\n`;
-                            });
-
-                            text += `└───⊷\n\n*DARK-DINU SYSTEM ENGINE*`;
-                            await sock.sendMessage(from, { text }, { quoted: msg });
-                            break;
+                            console.error(chalk.red(`[CMD ERROR - ${command}]:`), err);
                         }
                     }
                 }
@@ -282,9 +264,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     }
 }
 
-/**
- * Bootstrap existing DB sessions
- */
 async function autoReconnectAllBots() {
     try {
         const sessions = await SessionModel.distinct('sessionId');
@@ -298,8 +277,7 @@ async function autoReconnectAllBots() {
     }
 }
 
-// ================= Cyber Dark Interface =================
-
+// Web Pair Code UI
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -310,205 +288,61 @@ app.get('/', (req, res) => {
         <title>DARK-DINU // SYSTEM ACCESS</title>
         <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
         <style>
-            :root {
-                --primary: #ff003c;
-                --cyan: #00f0ff;
-                --bg: #050508;
-                --panel: rgba(13, 14, 23, 0.85);
-            }
+            :root { --primary: #ff003c; --cyan: #00f0ff; --bg: #050508; --panel: rgba(13, 14, 23, 0.85); }
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body {
-                background: var(--bg);
-                font-family: 'Rajdhani', sans-serif;
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                overflow: hidden;
-                color: #fff;
-                background-image: 
-                    radial-gradient(circle at 10% 20%, rgba(255, 0, 60, 0.12) 0%, transparent 40%),
-                    radial-gradient(circle at 90% 80%, rgba(0, 240, 255, 0.08) 0%, transparent 40%);
-            }
-            .panel {
-                width: 90%;
-                max-width: 440px;
-                background: var(--panel);
-                border: 1px solid rgba(255, 0, 60, 0.25);
-                box-shadow: 0 0 40px rgba(255, 0, 60, 0.15), inset 0 0 15px rgba(255, 0, 60, 0.05);
-                border-radius: 12px;
-                padding: 35px 25px;
-                backdrop-filter: blur(16px);
-                position: relative;
-            }
-            .panel::before {
-                content: '';
-                position: absolute;
-                top: 0; left: 10%; right: 10%;
-                height: 2px;
-                background: linear-gradient(90deg, transparent, var(--primary), transparent);
-            }
-            .header {
-                text-align: center;
-                margin-bottom: 25px;
-            }
-            .title {
-                font-family: 'Orbitron', sans-serif;
-                font-size: 26px;
-                font-weight: 900;
-                letter-spacing: 3px;
-                color: #fff;
-                text-shadow: 0 0 10px rgba(255, 0, 60, 0.7);
-            }
-            .subtitle {
-                font-size: 13px;
-                color: #8a8d9e;
-                letter-spacing: 2px;
-                margin-top: 5px;
-            }
-            .field {
-                margin-bottom: 18px;
-            }
-            label {
-                display: block;
-                font-size: 12px;
-                letter-spacing: 1px;
-                color: var(--cyan);
-                margin-bottom: 6px;
-                text-transform: uppercase;
-            }
-            input {
-                width: 100%;
-                background: rgba(0, 0, 0, 0.6);
-                border: 1px solid #1f2333;
-                border-radius: 6px;
-                padding: 12px 14px;
-                color: #fff;
-                font-size: 15px;
-                font-family: inherit;
-                outline: none;
-                transition: border 0.3s;
-            }
-            input:focus {
-                border-color: var(--primary);
-                box-shadow: 0 0 10px rgba(255, 0, 60, 0.3);
-            }
-            .btn {
-                width: 100%;
-                padding: 14px;
-                background: var(--primary);
-                border: none;
-                border-radius: 6px;
-                color: #fff;
-                font-family: 'Orbitron', sans-serif;
-                font-size: 14px;
-                font-weight: 700;
-                letter-spacing: 2px;
-                cursor: pointer;
-                transition: 0.3s;
-                text-shadow: 0 0 5px #000;
-                margin-top: 10px;
-            }
-            .btn:hover {
-                background: #d60032;
-                box-shadow: 0 0 20px rgba(255, 0, 60, 0.5);
-            }
-            .btn:disabled {
-                background: #333;
-                cursor: not-allowed;
-            }
-            #code-container {
-                display: none;
-                margin-top: 25px;
-                background: rgba(0, 0, 0, 0.7);
-                border: 1px dashed var(--cyan);
-                border-radius: 6px;
-                padding: 15px;
-                text-align: center;
-            }
-            .code-text {
-                font-family: 'Orbitron', sans-serif;
-                font-size: 30px;
-                letter-spacing: 6px;
-                color: var(--cyan);
-                text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-                cursor: pointer;
-                padding: 5px 0;
-            }
-            .nodes-count {
-                position: absolute;
-                top: 12px;
-                right: 15px;
-                font-size: 11px;
-                color: var(--primary);
-                letter-spacing: 1px;
-            }
+            body { background: var(--bg); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #fff; }
+            .panel { width: 90%; max-width: 440px; background: var(--panel); border: 1px solid rgba(255, 0, 60, 0.25); border-radius: 12px; padding: 35px 25px; text-align: center; }
+            .title { font-family: 'Orbitron', sans-serif; font-size: 26px; color: #fff; margin-bottom: 5px; }
+            .field { margin: 15px 0; text-align: left; }
+            label { display: block; font-size: 12px; color: var(--cyan); margin-bottom: 5px; }
+            input { width: 100%; background: #000; border: 1px solid #222; border-radius: 6px; padding: 12px; color: #fff; outline: none; }
+            .btn { width: 100%; padding: 14px; background: var(--primary); border: none; border-radius: 6px; color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 700; cursor: pointer; margin-top: 10px; }
+            #code-container { display: none; margin-top: 20px; background: #000; padding: 15px; border: 1px dashed var(--cyan); }
+            .code-text { font-family: 'Orbitron', sans-serif; font-size: 28px; color: var(--cyan); cursor: pointer; }
         </style>
     </head>
     <body>
         <div class="panel">
-            <span class="nodes-count">NODES: ${activeBots.size}</span>
-            <div class="header">
-                <h1 class="title">${BOT_TAG}</h1>
-                <p class="subtitle">MULTI-INSTANCE SYSTEM INTERFACE</p>
-            </div>
-
+            <h1 class="title">${BOT_TAG}</h1>
+            <p style="color: #666; font-size: 13px;">MULTI-INSTANCE LINK SYSTEM</p>
             <div class="field">
-                <label>Node Tag (Bot Session ID)</label>
-                <input type="text" id="botId" placeholder="e.g. dinu_matrix">
+                <label>Node Tag (Session ID)</label>
+                <input type="text" id="botId" placeholder="e.g. dinu_1">
             </div>
-
             <div class="field">
-                <label>Target Number (with Country Code)</label>
+                <label>WhatsApp Number</label>
                 <input type="text" id="phone" placeholder="947xxxxxxxx">
             </div>
-
             <button class="btn" id="actionBtn" onclick="generateCode()">AUTHENTICATE</button>
-
             <div id="code-container">
-                <div style="font-size: 11px; color: #8a8d9e; margin-bottom: 5px;">TAP CODE TO COPY</div>
+                <div style="font-size: 11px; color: #888; margin-bottom: 5px;">TAP CODE TO COPY</div>
                 <div class="code-text" id="codeOut" onclick="copyValue()">--------</div>
-                <div style="font-size: 12px; color: #555; margin-top: 5px;">Enter in Linked Devices</div>
             </div>
         </div>
-
         <script>
             async function generateCode() {
                 const phone = document.getElementById('phone').value.trim();
-                let botId = document.getElementById('botId').value.trim();
-                const btn = document.getElementById('actionBtn');
-                const container = document.getElementById('code-container');
-                const codeOut = document.getElementById('codeOut');
-
-                if (!phone) return alert('Enter a valid phone number!');
-                if (!botId) botId = 'node_' + Math.floor(1000 + Math.random() * 9000);
-
-                btn.innerText = 'INITIALIZING LINK...';
-                btn.disabled = true;
-                container.style.display = 'none';
-
+                let botId = document.getElementById('botId').value.trim() || 'node_' + Math.floor(1000 + Math.random() * 9000);
+                if (!phone) return alert('Enter phone number!');
+                document.getElementById('actionBtn').innerText = 'CONNECTING...';
                 try {
                     const res = await fetch(\`/pair?number=\${encodeURIComponent(phone)}&botId=\${encodeURIComponent(botId)}\`);
                     const data = await res.json();
-
                     if (data.status && data.pairingCode) {
-                        codeOut.innerText = data.pairingCode;
-                        container.style.display = 'block';
+                        document.getElementById('codeOut').innerText = data.pairingCode;
+                        document.getElementById('code-container').style.display = 'block';
                     } else {
-                        alert(data.error || 'Connection failed.');
+                        alert(data.error || 'Failed');
                     }
                 } catch {
-                    alert('System offline or server error.');
+                    alert('Error connecting.');
                 } finally {
-                    btn.innerText = 'AUTHENTICATE';
-                    btn.disabled = false;
+                    document.getElementById('actionBtn').innerText = 'AUTHENTICATE';
                 }
             }
-
             function copyValue() {
-                const text = document.getElementById('codeOut').innerText;
-                navigator.clipboard.writeText(text);
-                alert('COPIED: ' + text);
+                navigator.clipboard.writeText(document.getElementById('codeOut').innerText);
+                alert('COPIED!');
             }
         </script>
     </body>
@@ -527,11 +361,12 @@ app.get('/status', (req, res) => {
     res.json({
         engine: BOT_TAG,
         activeCount: activeBots.size,
-        nodes: Array.from(activeBots.keys())
+        nodes: Array.from(activeBots.keys()),
+        loadedCommands: Array.from(commands.keys())
     });
 });
 
-// Database & Server Startup
+// Database & Engine Boot
 mongoose.connect(MONGO_URL)
     .then(async () => {
         console.log(chalk.red.bold(`[${BOT_TAG}] MONGODB CLUSTER AUTHENTICATED.`));
