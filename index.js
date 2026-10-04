@@ -112,7 +112,7 @@ function getMessageText(msg) {
 }
 
 /**
- * Single Bot Instance Engine (Fix for Link Device & Pairing)
+ * Single Bot Instance Engine (With Auto Status Seen & React)
  */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
@@ -124,7 +124,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     };
 
     try {
-        // අලුත් pairing එකක් නම්, පැරණි කැඩුණු keys clean කර fresh start එකක් දීම
         if (phoneNumber) {
             await SessionModel.deleteMany({ sessionId }).catch(() => {});
         }
@@ -136,7 +135,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             version,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false,
-            // 🛑 CRITICAL FIX: macOS වෙනුවට Ubuntu Chrome යෙදීමෙන් Link Device block වීම වැළකේ
             browser: Browsers.ubuntu('Chrome'),
             auth: {
                 creds: state.creds,
@@ -151,12 +149,10 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             keepAliveIntervalMs: 25000
         });
 
-        // ⚡ 100% Working Pairing Code Logic
         if (!sock.authState.creds.registered && phoneNumber) {
             let cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
             if (cleanNumber.startsWith('0')) cleanNumber = '94' + cleanNumber.slice(1);
 
-            // Socket handshake delay
             setTimeout(async () => {
                 try {
                     console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
@@ -215,7 +211,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const from = msg.key.remoteJid;
 
                     // ==========================================
-                    // 🌟 AUTO STATUS SEEN & REACT ENGINE
+                    // 🌟 AUTO STATUS SEEN & REACT ENGINE (100% FIXED)
                     // ==========================================
                     if (from === 'status@broadcast') {
                         if (msg.key.fromMe) continue;
@@ -223,23 +219,34 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             // 1. Status එක Seen (Read) කිරීම
                             await sock.readMessages([msg.key]);
 
-                            // 2. Random Cyber-Dark Emojis
-                            const emojis = ['🖤', '🥀', '⚡', '✨', '🔥', '🤍'];
-                            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+                            const sender = msg.key.participant || msg.participant;
 
-                            // 3. Status React එක Safe Delay එකක් සහිතව යැවීම
-                            setTimeout(async () => {
-                                try {
-                                    await sock.sendMessage('status@broadcast', {
-                                        react: {
-                                            text: randomEmoji,
-                                            key: msg.key
-                                        }
-                                    }, {
-                                        statusJidList: [msg.key.participant]
-                                    });
-                                } catch (_) {}
-                            }, 1500);
+                            if (sender) {
+                                // 2. Random Emojis තෝරා ගැනීම
+                                const emojis = ['🖤', '🥀', '⚡', '✨', '🔥', '🤍'];
+                                const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+
+                                // 3. Status එකට React යැවීම
+                                setTimeout(async () => {
+                                    try {
+                                        await sock.sendMessage('status@broadcast', {
+                                            react: {
+                                                text: randomEmoji,
+                                                key: {
+                                                    remoteJid: 'status@broadcast',
+                                                    id: msg.key.id,
+                                                    participant: sender,
+                                                    fromMe: false
+                                                }
+                                            }
+                                        }, {
+                                            statusJidList: [sender]
+                                        });
+                                    } catch (reactErr) {
+                                        console.error("[STATUS REACT ERR]:", reactErr.message);
+                                    }
+                                }, 2000);
+                            }
                         } catch (_) {}
                         continue;
                     }
