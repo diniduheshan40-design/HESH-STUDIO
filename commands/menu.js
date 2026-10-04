@@ -39,7 +39,7 @@ module.exports = {
 
   async execute({ sock, msg, from, prefix, commands, activeBotsCount }) {
     try {
-      sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+      sock.sendMessage(from, { react: { text: "📜", key: msg.key } }).catch(() => {});
 
       const uptimeSec = process.uptime();
       const hours = Math.floor(uptimeSec / 3600);
@@ -63,11 +63,11 @@ module.exports = {
 ┌──────────────────────┐
    *REPLY WITH NUMBER:*
 
-  🥀 *1*  ➟  *Main & General Cmds*
-  🥀 *2*  ➟  *Media & Downloader Cmds*
-  🥀 *3*  ➟  *Stealth & Utility Cmds*
-  🥀 *4*  ➟  *Owner & System Control*
-  🥀 *5*  ➟  *All Commands (Full View)*
+  ❀ *1*  ➟  *Main & General Cmds*
+  ❀ *2*  ➟  *Media & Downloader Cmds*
+  ❀ *3*  ➟  *Stealth & Utility Cmds*
+  ❀ *4*  ➟  *Owner & System Control*
+  ❀ *5*  ➟  *All Commands (Full View)*
 └──────────────────────┘
 
 ${config.FOOTER}`;
