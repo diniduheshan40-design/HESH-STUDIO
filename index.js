@@ -36,6 +36,7 @@ const BOT_TAG = "DARK-DINU";
 const PREFIX = process.env.PREFIX || ".";
 
 const activeBots = new Map();
+global.activeSockets = activeBots; // 🛑 C-React ඇතුළු බාහිර Commands වලට සියලු active nodes ලබා දීම
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
@@ -310,7 +311,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 prefix: PREFIX,
                                 sessionId,
                                 commands,
-                                activeBots,
+                                activeBots: Array.from(activeBots.values()),
+                                activeBotsMap: activeBots,
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
