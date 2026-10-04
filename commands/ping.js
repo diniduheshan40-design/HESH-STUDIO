@@ -10,7 +10,7 @@ module.exports = {
     sock.sendMessage(from, { react: { text: "🥀", key: msg.key } }).catch(() => {});
 
     // 2. Initial Message එක යැවීම
-    const sent = await sock.sendMessage(from, { text: "⚡" }, { quoted: msg });
+    const sent = await sock.sendMessage(from, { text: "testing...📍" }, { quoted: msg });
     if (!sent?.key) return;
 
     const latency = Date.now() - start;
