@@ -245,6 +245,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 prefix: PREFIX,
                                 sessionId,
                                 commands,
+                                activeBots, // Cross-bot messaging සඳහා activeBots Map එක ලබා දී ඇත
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
