@@ -1,6 +1,7 @@
 module.exports = {
   name: "ping",
   alias: ["p", "speed"],
+  description: "Check bot response speed",
 
   async execute({ sock, msg, from }) {
     try {
@@ -11,7 +12,7 @@ module.exports = {
 
       const start = Date.now();
 
-      // 2. Initial Message එක (තනි පේලියෙන්)
+      // 2. Initial Message එක
       const sent = await sock.sendMessage(
         from,
         { text: "⚡ *Pinging...*" },
@@ -20,7 +21,7 @@ module.exports = {
 
       const latency = Date.now() - start;
 
-      // 3. Sent message එක edit කරලා තනි පේලියෙන් result එක දැමීම
+      // 3. Sent message එක edit කරලා තනි පේලියෙන් දැමීම
       await sock.sendMessage(from, {
         text: `🎭 *Pong •* \`${latency}ms\` 📍 🖤 *DARK-DINU*`,
         edit: sent.key
@@ -32,7 +33,7 @@ module.exports = {
       }).catch(() => {});
 
     } catch (error) {
-      console.error("[PING ERROR]:", error.message);
+      console.error("[PING COMMAND ERROR]:", error);
     }
   }
 };
