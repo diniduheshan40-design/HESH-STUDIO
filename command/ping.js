@@ -2,43 +2,38 @@ module.exports = {
   name: "ping",
   alias: ["p", "speed"],
 
-  async execute(sock, msg, args, from) {
+  async execute({ sock, msg, from }) {
     try {
-      // Command එකට 🥀 react
-      await sock.sendMessage(from, {
-        react: {
-          text: "🥀",
-          key: msg.key
-        }
-      });
+      // 1. Initial 🥀 Reaction එක (Parallel run වෙනවා non-blocking විදියට)
+      sock.sendMessage(from, {
+        react: { text: "🥀", key: msg.key }
+      }).catch(() => {});
 
       const start = Date.now();
 
-      // Initial message
+      // 2. Initial Status Text Message
       const sent = await sock.sendMessage(
         from,
-        { text: "✨ Pinging..." },
+        { text: "⚡ *Pinging Dark Engine...*" },
         { quoted: msg }
       );
 
+      // Latency calculate කිරීම
       const latency = Date.now() - start;
 
-      // Same message එක edit කරලා final result
+      // 3. Sent Message එක Fast Edit කිරීම
       await sock.sendMessage(from, {
-        text: `🎭 Pong • ${latency}ms 📍`,
+        text: `🎭 *Pong •* \`${latency}ms\` 📍\n🖤 *DARK-DINU SPEED*`,
         edit: sent.key
       });
 
-      // Ping message එකට 🖤 react
+      // 4. Edit කරපු message එකට 🖤 Reaction
       await sock.sendMessage(from, {
-        react: {
-          text: "🖤",
-          key: sent.key
-        }
-      });
+        react: { text: "🖤", key: sent.key }
+      }).catch(() => {});
 
     } catch (error) {
-      console.error("Ping Error:", error.message);
+      console.error("[PING ERROR]:", error.message);
     }
   }
 };
