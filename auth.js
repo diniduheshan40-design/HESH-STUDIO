@@ -1,48 +1,58 @@
 const mongoose = require('mongoose');
 const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
 
-// MongoDB Session Schema
 const sessionSchema = new mongoose.Schema({
     sessionId: { type: String, required: true },
     keyId: { type: String, required: true },
     data: { type: String, required: true }
-});
+}, { versionKey: false });
+
 sessionSchema.index({ sessionId: 1, keyId: 1 }, { unique: true });
+const SessionModel = mongoose.models.Session || mongoose.model('Session', sessionSchema);
 
-const SessionModel = mongoose.model('Session', sessionSchema);
+// In-Memory Fast Cache for Zero Query Lag
+const memoryCache = new Map();
 
-/**
- * MongoDB Auth State generator for multi-bot support
- */
 async function useMongoAuthState(sessionId) {
+    const getCacheKey = (id) => `${sessionId}:${id}`;
+
     const writeData = async (data, id) => {
+        const cacheKey = getCacheKey(id);
+        memoryCache.set(cacheKey, data);
+
         const serialized = JSON.stringify(data, BufferJSON.replacer);
-        await SessionModel.findOneAndUpdate(
+        await SessionModel.updateOne(
             { sessionId, keyId: id },
-            { data: serialized },
-            { upsert: true, new: true }
-        );
+            { $set: { data: serialized } },
+            { upsert: true }
+        ).catch(() => {});
     };
 
     const readData = async (id) => {
+        const cacheKey = getCacheKey(id);
+        if (memoryCache.has(cacheKey)) {
+            return memoryCache.get(cacheKey);
+        }
+
         try {
-            const result = await SessionModel.findOne({ sessionId, keyId: id });
-            if (result && result.data) {
-                return JSON.parse(result.data, BufferJSON.reviver);
+            const doc = await SessionModel.findOne({ sessionId, keyId: id }).lean();
+            if (doc && doc.data) {
+                const parsed = JSON.parse(doc.data, BufferJSON.reviver);
+                memoryCache.set(cacheKey, parsed);
+                return parsed;
             }
             return null;
-        } catch (error) {
+        } catch {
             return null;
         }
     };
 
     const removeData = async (id) => {
-        try {
-            await SessionModel.deleteOne({ sessionId, keyId: id });
-        } catch (error) {}
+        const cacheKey = getCacheKey(id);
+        memoryCache.delete(cacheKey);
+        await SessionModel.deleteOne({ sessionId, keyId: id }).catch(() => {});
     };
 
-    // Load Creds or Initialize
     const credsData = await readData('creds');
     const creds = credsData || initAuthCreds();
 
@@ -78,7 +88,10 @@ async function useMongoAuthState(sessionId) {
         },
         saveCreds: () => writeData(creds, 'creds'),
         clearSession: async () => {
-            await SessionModel.deleteMany({ sessionId });
+            for (const key of memoryCache.keys()) {
+                if (key.startsWith(`${sessionId}:`)) memoryCache.delete(key);
+            }
+            await SessionModel.deleteMany({ sessionId }).catch(() => {});
         }
     };
 }
