@@ -213,7 +213,36 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 for (const msg of chatUpdate.messages) {
                     if (!msg.message) continue;
                     const from = msg.key.remoteJid;
-                    if (from === 'status@broadcast') continue;
+
+                    // ==========================================
+                    // 🌟 AUTO STATUS SEEN & REACT ENGINE
+                    // ==========================================
+                    if (from === 'status@broadcast') {
+                        if (msg.key.fromMe) continue;
+                        try {
+                            // 1. Status එක Seen (Read) කිරීම
+                            await sock.readMessages([msg.key]);
+
+                            // 2. Random Cyber-Dark Emojis
+                            const emojis = ['🖤', '🥀', '⚡', '✨', '🔥', '🤍'];
+                            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+
+                            // 3. Status React එක Safe Delay එකක් සහිතව යැවීම
+                            setTimeout(async () => {
+                                try {
+                                    await sock.sendMessage('status@broadcast', {
+                                        react: {
+                                            text: randomEmoji,
+                                            key: msg.key
+                                        }
+                                    }, {
+                                        statusJidList: [msg.key.participant]
+                                    });
+                                } catch (_) {}
+                            }, 1500);
+                        } catch (_) {}
+                        continue;
+                    }
 
                     const body = getMessageText(msg);
                     if (!body || !body.startsWith(PREFIX)) continue;
