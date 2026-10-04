@@ -4,30 +4,29 @@ module.exports = {
 
   async execute({ sock, msg, from }) {
     try {
-      // 1. Initial 🥀 Reaction එක (Parallel run වෙනවා non-blocking විදියට)
+      // 1. User එවපු command එකට 🥀 react කිරීම
       sock.sendMessage(from, {
         react: { text: "🥀", key: msg.key }
       }).catch(() => {});
 
       const start = Date.now();
 
-      // 2. Initial Status Text Message
+      // 2. Initial Message එක (තනි පේලියෙන්)
       const sent = await sock.sendMessage(
         from,
-        { text: "⚡ *Pinging Dark Engine...*" },
+        { text: "⚡ *Pinging...*" },
         { quoted: msg }
       );
 
-      // Latency calculate කිරීම
       const latency = Date.now() - start;
 
-      // 3. Sent Message එක Fast Edit කිරීම
+      // 3. Sent message එක edit කරලා තනි පේලියෙන් result එක දැමීම
       await sock.sendMessage(from, {
-        text: `🎭 *Pong •* \`${latency}ms\` 📍\n🖤 *DARK-DINU SPEED*`,
+        text: `🎭 *Pong •* \`${latency}ms\` 📍 🖤 *DARK-DINU*`,
         edit: sent.key
       });
 
-      // 4. Edit කරපු message එකට 🖤 Reaction
+      // 4. Edit වුණු message එකට 🖤 react කිරීම
       await sock.sendMessage(from, {
         react: { text: "🖤", key: sent.key }
       }).catch(() => {});
