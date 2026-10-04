@@ -28,7 +28,7 @@ const activeBots = new Map();
 const commands = new Map();
 
 /**
- * commands ෆෝල්ඩරයේ ඇති සියලුම js files load කිරීම
+ * Commands dynamic loading with case-insensitive directory check
  */
 function loadCommands() {
     commands.clear();
@@ -60,10 +60,13 @@ function loadCommands() {
 loadCommands();
 
 /**
- * Message එකකින් Text එක හරියටම නිස්සාරණය කරගන්නා Helper Function එක
+ * Deep text extractor - WhatsApp Message wrappers සියල්ල unpack කරයි
  */
-function extractMessageBody(m) {
-    if (!m) return '';
+function getMessageText(msg) {
+    if (!msg || !msg.message) return '';
+    let m = msg.message;
+
+    // Ephemeral / ViewOnce / Document wrappers unwrapping
     if (m.ephemeralMessage) m = m.ephemeralMessage.message;
     if (m.viewOnceMessageV2) m = m.viewOnceMessageV2.message;
     if (m.viewOnceMessage) m = m.viewOnceMessage.message;
@@ -77,6 +80,7 @@ function extractMessageBody(m) {
         m.templateButtonReplyMessage?.selectedId ||
         m.buttonsResponseMessage?.selectedButtonId ||
         m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+        m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
         ''
     ).trim();
 }
@@ -111,7 +115,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             syncFullHistory: false
         });
 
-        // Pairing Code Request Handler
+        // Pairing Code Handler
         if (!sock.authState.creds.registered && phoneNumber) {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
 
@@ -119,7 +123,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 try {
                     console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
                     const code = await sock.requestPairingCode(cleanNumber);
-                    console.log(chalk.green(`[${BOT_TAG}] Pairing Code generated: ${code}`));
+                    console.log(chalk.green(`[${BOT_TAG}] Pairing Code: ${code}`));
                     sendResponse(true, { sessionId, pairingCode: code });
                 } catch (err) {
                     console.error(chalk.red(`[${BOT_TAG}] Pairing Code Error:`), err);
@@ -128,12 +132,13 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }, 3000);
 
             setTimeout(() => {
-                sendResponse(false, { error: 'Request timed out. Please check number and try again.' });
+                sendResponse(false, { error: 'Request timed out. Please try again.' });
             }, 25000);
         }
 
         sock.ev.on('creds.update', saveCreds);
 
+        // Connection Handling
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
 
@@ -147,51 +152,91 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     console.log(chalk.yellow(`[${BOT_TAG}] [${sessionId}] Reconnecting...`));
                     setTimeout(() => startSingleBot(sessionId), 5000);
                 } else {
-                    console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Session Logged Out.`));
+                    console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Session Expired/Logged Out.`));
                     await clearSession();
                     activeBots.delete(sessionId);
                 }
             } else if (connection === 'open') {
-                console.log(chalk.green.bold(`[${BOT_TAG}] [${sessionId}] Connected Successfully!`));
+                console.log(chalk.green.bold(`\n==============================================`));
+                console.log(chalk.green.bold(` [${BOT_TAG}] [${sessionId}] CONNECTED & READY! `));
+                console.log(chalk.green.bold(`==============================================\n`));
                 activeBots.set(sessionId, sock);
             }
         });
 
-        // Robust Message Event Listener
-        sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            if (type !== 'notify' && type !== 'append') return;
-            const msg = messages[0];
-            if (!msg || !msg.message) return;
+        // Message Handling (Multi-message loop & Direct Fallback)
+        sock.ev.on('messages.upsert', async (chatUpdate) => {
+            try {
+                if (!chatUpdate.messages) return;
 
-            const from = msg.key.remoteJid;
-            if (from === 'status@broadcast') return; // Status updates මඟහරින්න
+                for (const msg of chatUpdate.messages) {
+                    if (!msg || !msg.message) continue;
 
-            const body = extractMessageBody(msg.message);
-            if (!body || !body.startsWith(PREFIX)) return;
+                    const from = msg.key.remoteJid;
+                    if (from === 'status@broadcast') continue;
 
-            const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
-            const command = commands.get(cmdName.toLowerCase());
+                    const body = getMessageText(msg);
+                    if (!body || !body.startsWith(PREFIX)) continue;
 
-            console.log(chalk.magenta(`[${BOT_TAG}] [${sessionId}] Command Triggered: "${cmdName}" from ${from}`));
+                    const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
+                    const command = cmdName.toLowerCase();
 
-            if (command) {
-                try {
-                    await command.execute({
-                        sock,
-                        msg,
-                        from,
-                        args,
-                        body,
-                        sessionId,
-                        commands,
-                        activeBotsCount: activeBots.size
-                    });
-                } catch (cmdErr) {
-                    console.error(chalk.red(`Error executing command ${cmdName}:`), cmdErr);
-                    await sock.sendMessage(from, { text: `❌ Error: ${cmdErr.message}` }, { quoted: msg });
+                    console.log(chalk.magenta(`[${BOT_TAG}] [${sessionId}] Command Detected: "${command}" from ${from}`));
+
+                    // 1. External command file එකක් තියෙනවා නම් එය run කිරීම
+                    if (commands.has(command)) {
+                        const cmdModule = commands.get(command);
+                        await cmdModule.execute({
+                            sock,
+                            msg,
+                            from,
+                            args,
+                            body,
+                            sessionId,
+                            commands,
+                            activeBotsCount: activeBots.size
+                        });
+                        continue;
+                    }
+
+                    // 2. Built-in Fail-safe Commands (Commands folder එක load නොවුනත් මේවා 100% වැඩ කරයි)
+                    switch (command) {
+                        case 'ping': {
+                            const start = Date.now();
+                            const latency = Date.now() - start;
+                            await sock.sendMessage(from, { 
+                                text: `*Pong!* 🏓\n⚡ *Speed:* ${latency}ms\n🤖 *Bot:* ${BOT_TAG}\n🆔 *Session:* ${sessionId}` 
+                            }, { quoted: msg });
+                            break;
+                        }
+
+                        case 'alive': {
+                            const aliveText = `*👋 DARK-DINU MD Multi-Bot is Online!*\n\n` +
+                                              `⚡ *Database:* MongoDB\n` +
+                                              `⚙️ *Prefix:* ${PREFIX}\n` +
+                                              `🤖 *Active Sessions:* ${activeBots.size}`;
+                            await sock.sendMessage(from, { text: aliveText }, { quoted: msg });
+                            break;
+                        }
+
+                        case 'menu': {
+                            let list = `╭━━━〔 *${BOT_TAG} MENU* 〕━━━╮\n┃\n`;
+                            list += `┃ 🔹 ${PREFIX}ping\n`;
+                            list += `┃ 🔹 ${PREFIX}alive\n`;
+                            list += `┃ 🔹 ${PREFIX}menu\n`;
+                            commands.forEach((c) => {
+                                if (!['ping', 'alive', 'menu'].includes(c.name)) {
+                                    list += `┃ 🔹 ${PREFIX}${c.name}\n`;
+                                }
+                            });
+                            list += `┃\n╰━━━━━━━━━━━━━━━━━━━━╯`;
+                            await sock.sendMessage(from, { text: list }, { quoted: msg });
+                            break;
+                        }
+                    }
                 }
-            } else {
-                console.log(chalk.yellow(`[${BOT_TAG}] Command not found in commands map: "${cmdName}"`));
+            } catch (err) {
+                console.error(chalk.red(`[${BOT_TAG}] Message Event Error:`), err);
             }
         });
 
