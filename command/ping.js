@@ -2,35 +2,28 @@ module.exports = {
   name: "ping",
   alias: ["p", "speed"],
   desc: "Check bot real response speed",
-  async execute({ sock, msg, from, sessionId }) {
+  async execute(sock, msg, args, from) {
     try {
-      // 1. User ගේ message එකට 🚀 React එක දැමීම
-      await sock.sendMessage(from, { react: { text: "🚀", key: msg.key } });
-
       const start = Date.now();
 
-      // 2. තාවකාලික Pinging message එක යැවීම
-      const sent = await sock.sendMessage(
-        from,
-        { text: "⚡ *Pinging...*" },
-        { quoted: msg }
-      );
+      // 1. Reaction එකක් දැමීම (Error එකක් ආවත් crash නොවීමට catch කර ඇත)
+      sock.sendMessage(from, { react: { text: "🚀", key: msg.key } }).catch(() => {});
 
-      // 3. Real Latency ගණනය කිරීම
+      // 2. Real Latency ගණනය කිරීම
       const latency = Date.now() - start;
 
-      // 4. යැවූ message එක Edit කර ප්‍රතිඵලය පෙන්වීම
-      await sock.sendMessage(from, {
-        text: `*Pong \`${latency}ms\` 🔥*\n🤖 *Bot:* DARK-DINU\n🆔 *Session:* ${sessionId || "Main"}`,
-        edit: sent.key
-      });
+      // 3. Message එක Edit නොකර කෙලින්ම Send කිරීම (Crash වීම සම්පූර්ණයෙන්ම නතර වේ)
+      const sent = await sock.sendMessage(from, {
+        text: `*Pong \`${latency}ms\` 🔥*\n⚡ *DARK-DINU Speed Test*`
+      }, { quoted: msg });
 
-      // 5. Bot ගේ Edit වූ message එකට ⚡ React එක දැමීම
+      // 4. Bot ගේ message එකට reaction එකක් දැමීම
       if (sent?.key) {
-        await sock.sendMessage(from, { react: { text: "⚡", key: sent.key } });
+        sock.sendMessage(from, { react: { text: "⚡", key: sent.key } }).catch(() => {});
       }
+
     } catch (err) {
-      console.error("Ping Error:", err.message);
+      console.error("Ping Safe Error:", err.message);
     }
   }
 };
