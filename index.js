@@ -112,7 +112,7 @@ function getMessageText(msg) {
 }
 
 /**
- * Single Bot Instance Engine (With Auto Status Seen & React)
+ * Single Bot Instance Engine (Super-Stable Encryption & Fast Relink)
  */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
@@ -133,17 +133,23 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
         const sock = makeWASocket({
             version,
-            logger: pino({ level: 'silent' }),
+            logger: pino({ level: 'fatal' }), // 🛑 Bad MAC logs spam වීම වළක්වයි
             printQRInTerminal: false,
             browser: Browsers.ubuntu('Chrome'),
             auth: {
                 creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' })),
             },
             msgRetryCounterCache,
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
-            markOnlineOnConnect: false,
+            markOnlineOnConnect: true, // 🛑 Pre-keys sync සඳහා අත්‍යවශ්‍යයි
+            // 🛑 WhatsApp Server retry handler - "Waiting for this message" විසඳුම
+            getMessage: async (key) => {
+                return {
+                    conversation: ''
+                };
+            },
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 60000,
             keepAliveIntervalMs: 25000
