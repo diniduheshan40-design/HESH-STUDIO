@@ -39,17 +39,11 @@ const activeBots = new Map();
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
-/**
- * ⚡ Smart Command Loader & Watcher
- */
 function getCommandDirectory() {
     const defaultPath = path.join(__dirname, 'commands');
     if (fs.existsSync(defaultPath)) return defaultPath;
-
-    // Capital letter check (Linux file system support)
     const upperPath = path.join(__dirname, 'Commands');
     if (fs.existsSync(upperPath)) return upperPath;
-
     fs.mkdirSync(defaultPath, { recursive: true });
     return defaultPath;
 }
@@ -57,32 +51,20 @@ function getCommandDirectory() {
 function loadCommands() {
     commands.clear();
     const cmdDir = getCommandDirectory();
-    console.log(chalk.cyan(`\n[${BOT_TAG}] Scanning directory: ${cmdDir}`));
-
     try {
         const files = fs.readdirSync(cmdDir);
-        console.log(chalk.gray(`Found files in directory: ${JSON.stringify(files)}`));
-
         for (const file of files) {
             if (file.endsWith('.js')) {
                 try {
                     const filePath = path.join(cmdDir, file);
                     delete require.cache[require.resolve(filePath)];
                     const cmd = require(filePath);
-
                     if (cmd && cmd.name && typeof cmd.execute === 'function') {
                         const mainName = cmd.name.toLowerCase();
                         commands.set(mainName, cmd);
-                        console.log(chalk.green(`[LOADED CMD] => ${PREFIX}${mainName} (from ${file})`));
-
                         if (Array.isArray(cmd.alias)) {
-                            cmd.alias.forEach(alias => {
-                                commands.set(alias.toLowerCase(), cmd);
-                                console.log(chalk.blue(`   [ALIAS] => ${PREFIX}${alias.toLowerCase()}`));
-                            });
+                            cmd.alias.forEach(alias => commands.set(alias.toLowerCase(), cmd));
                         }
-                    } else {
-                        console.log(chalk.yellow(`[SKIPPED] ${file} (Missing name or execute function)`));
                     }
                 } catch (loadErr) {
                     console.error(chalk.red(`[ERROR LOADING ${file}]:`), loadErr.message);
@@ -92,13 +74,9 @@ function loadCommands() {
     } catch (dirErr) {
         console.error(chalk.red(`[DIRECTORY ERROR]:`), dirErr.message);
     }
-    console.log(chalk.red.bold(`[${BOT_TAG}] TOTAL COMMAND HANDLERS ACTIVE: ${commands.size}\n`));
 }
-
-// Initial Loading
 loadCommands();
 
-// Live File Watcher (Hot Reload)
 try {
     const watchDir = getCommandDirectory();
     let reloadDebounce;
@@ -106,14 +84,11 @@ try {
         if (filename && filename.endsWith('.js')) {
             clearTimeout(reloadDebounce);
             reloadDebounce = setTimeout(() => {
-                console.log(chalk.yellow(`[FILE MODIFIED] => ${filename}. Reloading modules...`));
                 loadCommands();
             }, 300);
         }
     });
-} catch (e) {
-    console.log(chalk.gray("File watcher disabled or not supported."));
-}
+} catch (_) {}
 
 function getMessageText(msg) {
     if (!msg || !msg.message) return '';
@@ -136,6 +111,9 @@ function getMessageText(msg) {
     ).trim();
 }
 
+/**
+ * Single Bot Instance Engine (Fix for Link Device & Pairing)
+ */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
     const sendResponse = (status, data) => {
@@ -146,6 +124,11 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     };
 
     try {
+        // අලුත් pairing එකක් නම්, පැරණි කැඩුණු keys clean කර fresh start එකක් දීම
+        if (phoneNumber) {
+            await SessionModel.deleteMany({ sessionId }).catch(() => {});
+        }
+
         const { state, saveCreds, clearSession } = await useMongoAuthState(sessionId);
         const { version } = await fetchLatestBaileysVersion();
 
@@ -153,7 +136,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             version,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false,
-            browser: Browsers.macOS('Desktop'),
+            // 🛑 CRITICAL FIX: macOS වෙනුවට Ubuntu Chrome යෙදීමෙන් Link Device block වීම වැළකේ
+            browser: Browsers.ubuntu('Chrome'),
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
@@ -164,22 +148,29 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             markOnlineOnConnect: false,
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000
+            keepAliveIntervalMs: 25000
         });
 
+        // ⚡ 100% Working Pairing Code Logic
         if (!sock.authState.creds.registered && phoneNumber) {
-            const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+            let cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+            if (cleanNumber.startsWith('0')) cleanNumber = '94' + cleanNumber.slice(1);
+
+            // Socket handshake delay
             setTimeout(async () => {
                 try {
+                    console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
                     const code = await sock.requestPairingCode(cleanNumber);
+                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully: ${code}`));
                     sendResponse(true, { sessionId, pairingCode: code });
                 } catch (err) {
-                    sendResponse(false, { error: err.message || 'Pairing error' });
+                    console.error(chalk.red(`[PAIRING ERROR]:`), err.message);
+                    sendResponse(false, { error: err.message || 'Failed to request pairing code' });
                 }
-            }, 2500);
+            }, 3000);
 
             setTimeout(() => {
-                sendResponse(false, { error: 'Request timeout. Try again.' });
+                sendResponse(false, { error: 'Request timed out. Please try again.' });
             }, 30000);
         }
 
@@ -202,7 +193,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 if (shouldReconnect) {
                     console.log(chalk.yellow(`[${BOT_TAG}] Reconnecting [${sessionId}] in 5s...`));
                     setTimeout(() => {
-                        startSingleBot(sessionId).catch(e => console.error("Reconnect err:", e.message));
+                        startSingleBot(sessionId).catch(() => {});
                     }, 5000);
                 } else {
                     console.log(chalk.red(`[${BOT_TAG}] Session Logged Out [${sessionId}]`));
@@ -215,7 +206,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
-        // Command Execution Listener
         sock.ev.on('messages.upsert', async (chatUpdate) => {
             try {
                 if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
@@ -231,7 +221,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
                     const command = cmdName.toLowerCase();
 
-                    // Commands Folder හරහා Execution
                     if (commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
@@ -245,7 +234,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 prefix: PREFIX,
                                 sessionId,
                                 commands,
-                                activeBots, // Cross-bot messaging සඳහා activeBots Map එක ලබා දී ඇත
+                                activeBots,
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
@@ -278,7 +267,8 @@ async function autoReconnectAllBots() {
     }
 }
 
-// Web Pair Code UI
+// ================= Web Pair Code UI =================
+
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -291,59 +281,76 @@ app.get('/', (req, res) => {
         <style>
             :root { --primary: #ff003c; --cyan: #00f0ff; --bg: #050508; --panel: rgba(13, 14, 23, 0.85); }
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { background: var(--bg); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #fff; }
-            .panel { width: 90%; max-width: 440px; background: var(--panel); border: 1px solid rgba(255, 0, 60, 0.25); border-radius: 12px; padding: 35px 25px; text-align: center; }
+            body { background: var(--bg); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #fff; padding: 15px; }
+            .panel { width: 100%; max-width: 440px; background: var(--panel); border: 1px solid rgba(255, 0, 60, 0.25); border-radius: 12px; padding: 35px 25px; text-align: center; box-shadow: 0 0 30px rgba(255, 0, 60, 0.15); }
             .title { font-family: 'Orbitron', sans-serif; font-size: 26px; color: #fff; margin-bottom: 5px; }
             .field { margin: 15px 0; text-align: left; }
             label { display: block; font-size: 12px; color: var(--cyan); margin-bottom: 5px; }
-            input { width: 100%; background: #000; border: 1px solid #222; border-radius: 6px; padding: 12px; color: #fff; outline: none; }
-            .btn { width: 100%; padding: 14px; background: var(--primary); border: none; border-radius: 6px; color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 700; cursor: pointer; margin-top: 10px; }
-            #code-container { display: none; margin-top: 20px; background: #000; padding: 15px; border: 1px dashed var(--cyan); }
-            .code-text { font-family: 'Orbitron', sans-serif; font-size: 28px; color: var(--cyan); cursor: pointer; }
+            input { width: 100%; background: #000; border: 1px solid #222; border-radius: 6px; padding: 12px; color: #fff; outline: none; font-size: 15px; }
+            input:focus { border-color: var(--primary); }
+            .btn { width: 100%; padding: 14px; background: var(--primary); border: none; border-radius: 6px; color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 700; cursor: pointer; margin-top: 10px; font-size: 14px; letter-spacing: 1px; }
+            .btn:disabled { background: #333; cursor: not-allowed; }
+            #code-container { display: none; margin-top: 20px; background: #000; padding: 15px; border: 1px dashed var(--cyan); border-radius: 6px; }
+            .code-text { font-family: 'Orbitron', sans-serif; font-size: 30px; color: var(--cyan); cursor: pointer; letter-spacing: 6px; margin: 10px 0; user-select: all; }
         </style>
     </head>
     <body>
         <div class="panel">
             <h1 class="title">${BOT_TAG}</h1>
-            <p style="color: #666; font-size: 13px;">MULTI-INSTANCE LINK SYSTEM</p>
+            <p style="color: #666; font-size: 13px; margin-bottom: 20px;">MULTI-INSTANCE LINK SYSTEM</p>
             <div class="field">
                 <label>Node Tag (Session ID)</label>
-                <input type="text" id="botId" placeholder="e.g. dinu_1">
+                <input type="text" id="botId" placeholder="e.g. dinu_node1">
             </div>
             <div class="field">
                 <label>WhatsApp Number</label>
                 <input type="text" id="phone" placeholder="947xxxxxxxx">
             </div>
-            <button class="btn" id="actionBtn" onclick="generateCode()">AUTHENTICATE</button>
+            <button class="btn" id="actionBtn" onclick="generateCode()">GET PAIRING CODE</button>
             <div id="code-container">
-                <div style="font-size: 11px; color: #888; margin-bottom: 5px;">TAP CODE TO COPY</div>
+                <div style="font-size: 11px; color: #888; margin-bottom: 5px;">CLICK CODE TO COPY</div>
                 <div class="code-text" id="codeOut" onclick="copyValue()">--------</div>
+                <div style="font-size: 12px; color: #555;">WhatsApp > Linked Devices > Link with phone number</div>
             </div>
         </div>
         <script>
             async function generateCode() {
-                const phone = document.getElementById('phone').value.trim();
-                let botId = document.getElementById('botId').value.trim() || 'node_' + Math.floor(1000 + Math.random() * 9000);
-                if (!phone) return alert('Enter phone number!');
-                document.getElementById('actionBtn').innerText = 'CONNECTING...';
+                const phoneInput = document.getElementById('phone');
+                const botIdInput = document.getElementById('botId');
+                const btn = document.getElementById('actionBtn');
+                const container = document.getElementById('code-container');
+                const codeOut = document.getElementById('codeOut');
+
+                let phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
+                let botId = botIdInput.value.trim() || 'node_' + Math.floor(1000 + Math.random() * 9000);
+
+                if (!phone) return alert('කරුණාකර WhatsApp අංකය ඇතුළත් කරන්න!');
+
+                btn.innerText = 'GENERATING CODE...';
+                btn.disabled = true;
+                container.style.display = 'none';
+
                 try {
                     const res = await fetch(\`/pair?number=\${encodeURIComponent(phone)}&botId=\${encodeURIComponent(botId)}\`);
                     const data = await res.json();
                     if (data.status && data.pairingCode) {
-                        document.getElementById('codeOut').innerText = data.pairingCode;
-                        document.getElementById('code-container').style.display = 'block';
+                        codeOut.innerText = data.pairingCode;
+                        container.style.display = 'block';
                     } else {
-                        alert(data.error || 'Failed');
+                        alert(data.error || 'Failed to get code. Try again.');
                     }
                 } catch {
-                    alert('Error connecting.');
+                    alert('Server error! Please try again.');
                 } finally {
-                    document.getElementById('actionBtn').innerText = 'AUTHENTICATE';
+                    btn.innerText = 'GET PAIRING CODE';
+                    btn.disabled = false;
                 }
             }
             function copyValue() {
-                navigator.clipboard.writeText(document.getElementById('codeOut').innerText);
-                alert('COPIED!');
+                const text = document.getElementById('codeOut').innerText;
+                if (!text || text.includes('-')) return;
+                navigator.clipboard.writeText(text);
+                alert('COPIED: ' + text);
             }
         </script>
     </body>
@@ -367,13 +374,14 @@ app.get('/status', (req, res) => {
     });
 });
 
-// Database & Engine Boot
+// Port Listen & DB Boot
+app.listen(PORT, () => {
+    console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
+});
+
 mongoose.connect(MONGO_URL)
     .then(async () => {
         console.log(chalk.red.bold(`[${BOT_TAG}] MONGODB CLUSTER AUTHENTICATED.`));
         await autoReconnectAllBots();
-        app.listen(PORT, () => {
-            console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
-        });
     })
     .catch((err) => console.error(chalk.red('FATAL DB ERROR:'), err));
