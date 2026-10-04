@@ -15,7 +15,6 @@ const SessionModel = mongoose.models.Session || mongoose.model('Session', sessio
  * MongoDB Multi-Device Auth Engine (Zero Data-Loss)
  */
 async function useMongoAuthState(sessionId) {
-    // MongoDB එකට save කිරීම
     const writeData = async (data, id) => {
         try {
             const serialized = JSON.stringify(data, BufferJSON.replacer);
@@ -29,7 +28,6 @@ async function useMongoAuthState(sessionId) {
         }
     };
 
-    // MongoDB එකෙන් read කිරීම
     const readData = async (id) => {
         try {
             const doc = await SessionModel.findOne({ sessionId, keyId: id }).lean();
@@ -43,7 +41,6 @@ async function useMongoAuthState(sessionId) {
         }
     };
 
-    // Data remove කිරීම
     const removeData = async (id) => {
         try {
             await SessionModel.deleteOne({ sessionId, keyId: id });
@@ -52,7 +49,6 @@ async function useMongoAuthState(sessionId) {
         }
     };
 
-    // Creds load කිරීම හෝ අලුතින් init කිරීම
     const credsData = await readData('creds');
     const creds = credsData || initAuthCreds();
 
