@@ -18,13 +18,16 @@ try {
 global.menuTracker = global.menuTracker || new Map();
 let isMenuHooked = false;
 
-// Local Image Buffer Loader (Zero Network Lag / No ECONNREFUSED)
+// Local Image Buffer Loader (Zero Network Lag / Direct File Read)
 function getLocalLogo() {
   try {
-    const localPath = path.join(process.cwd(), 'assets', 'logo.jpg');
-    if (fs.existsSync(localPath)) {
-      return fs.readFileSync(localPath);
-    }
+    // 1. Root directory එකේ logo.jpg තියෙනවද බැලීම
+    const rootPath = path.join(process.cwd(), 'logo.jpg');
+    if (fs.existsSync(rootPath)) return fs.readFileSync(rootPath);
+
+    // 2. Assets folder එක ඇතුළේ logo.jpg තියෙනවද බැලීම
+    const assetPath = path.join(process.cwd(), 'assets', 'logo.jpg');
+    if (fs.existsSync(assetPath)) return fs.readFileSync(assetPath);
   } catch (_) {}
   return null;
 }
