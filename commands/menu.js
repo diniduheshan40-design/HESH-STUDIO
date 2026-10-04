@@ -21,11 +21,9 @@ let isMenuHooked = false;
 // Local Image Buffer Loader (Zero Network Lag / Direct File Read)
 function getLocalLogo() {
   try {
-    // 1. Root directory එකේ logo.jpg තියෙනවද බැලීම
     const rootPath = path.join(process.cwd(), 'logo.jpg');
     if (fs.existsSync(rootPath)) return fs.readFileSync(rootPath);
 
-    // 2. Assets folder එක ඇතුළේ logo.jpg තියෙනවද බැලීම
     const assetPath = path.join(process.cwd(), 'assets', 'logo.jpg');
     if (fs.existsSync(assetPath)) return fs.readFileSync(assetPath);
   } catch (_) {}
@@ -35,11 +33,11 @@ function getLocalLogo() {
 module.exports = {
   name: "menu",
   alias: ["help", "list", "panel"],
-  description: "All-in-One Interactive Category Menu with Local Logo",
+  description: "Cyber Card Themed Interactive Category Menu",
 
   async execute({ sock, msg, from, prefix, commands, activeBotsCount }) {
     try {
-      sock.sendMessage(from, { react: { text: "📜", key: msg.key } }).catch(() => {});
+      sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
 
       const uptimeSec = process.uptime();
       const hours = Math.floor(uptimeSec / 3600);
@@ -48,27 +46,29 @@ module.exports = {
 
       const pref = prefix || config.PREFIX || ".";
 
-      // Main Menu UI
+      // Main Menu UI (Cyber Card Theme)
       const mainText = 
 `╔══════════════════════╗
-   🕷️ *${config.BOT_NAME} SYSTEM MENU* 🕷️
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
 ╚══════════════════════╝
 
-👤 *Owner:* ${config.OWNER_NAME}
-⚡ *Prefix:* [ ${pref} ]
-🌐 *Active Nodes:* ${activeBotsCount || 1}
-⏳ *Uptime:* ${hours}h ${mins}m ${secs}s
-📦 *Total Modules:* ${commands?.size || 0}
+┌─〔 ⚙️ *SYSTEM STATUS* 〕
+├─▸ 👤 *Dev*     : ${config.OWNER_NAME}
+├─▸ ⚡ *Prefix*  : [ ${pref} ]
+├─▸ 🌐 *Nodes*   : ${activeBotsCount || 1} Online
+├─▸ ⏳ *Uptime*  : ${hours}h ${mins}m ${secs}s
+├─▸ 📦 *Modules* : ${commands?.size || 0} Loaded
+└───────────────────────
 
-┌──────────────────────┐
-   *REPLY WITH NUMBER:*
+┌─〔 🥀 *COMMAND PANELS* 〕
+├─▸ [ 𝟏 ] ❯ ɢᴇɴᴇʀᴀʟ & ɪɴғᴏ
+├─▸ [ 𝟐 ] ❯ ᴍᴇᴅɪᴀ ᴅᴏᴡɴʟᴏᴀᴅ
+├─▸ [ 𝟑 ] ❯ sᴛᴇᴀʟᴛʜ & ᴜᴛɪʟɪᴛʏ
+├─▸ [ 𝟒 ] ❯ sʏsᴛᴇᴍ & ᴏᴡɴᴇʀ
+├─▸ [ 𝟓 ] ❯ ғᴜʟʟ ᴄᴏᴍᴍᴀɴᴅ ʟɪsᴛ
+└───────────────────────
 
-  ❀ *1*  ➟  *Main & General Cmds*
-  ❀ *2*  ➟  *Media & Downloader Cmds*
-  ❀ *3*  ➟  *Stealth & Utility Cmds*
-  ❀ *4*  ➟  *Owner & System Control*
-  ❀ *5*  ➟  *All Commands (Full View)*
-└──────────────────────┘
+> 💬 *Reply with number (1-5) to access*
 
 ${config.FOOTER}`;
 
@@ -132,62 +132,72 @@ ${config.FOOTER}`;
                 reactIcon = "⚡";
                 subText = 
 `╔══════════════════════╗
-   ⚡ *GENERAL COMMANDS* ⚡
+   ⚡ ɢᴇɴᴇʀᴀʟ & ɪɴғᴏ ⚡
 ╚══════════════════════╝
 
-• *${p}ping* - Check bot latency
-• *${p}menu* - Open main panel
-• *${p}alive* - System health check
+┌─〔 📂 *MODULE LIST* 〕
+├─▸ 📌 *${p}ping*  : Check bot latency & response
+├─▸ 📌 *${p}menu*  : Display system command list
+├─▸ 📌 *${p}alive* : Check server & connection state
+└───────────────────────
 
 ${config.FOOTER}`;
               } else if (replyChoice === '2') {
                 reactIcon = "📥";
                 subText = 
 `╔══════════════════════╗
-   📥 *MEDIA DOWNLOADERS* 📥
+   📥 ᴍᴇᴅɪᴀ ᴅᴏᴡɴʟᴏᴀᴅ 📥
 ╚══════════════════════╝
 
-• *${p}tiktok* <url> - TikTok HD/SD/Voice Downloader
-• *${p}tt* <url> - TikTok short alias
-• *${p}url* - Convert media to direct link
-• *${p}tourl* - URL upload alias
+┌─〔 📂 *MODULE LIST* 〕
+├─▸ 📌 *${p}tiktok* <url> : TikTok HD / SD / MP3
+├─▸ 📌 *${p}tt* <url>     : TikTok quick shortcut
+├─▸ 📌 *${p}url*          : Upload media & get direct link
+├─▸ 📌 *${p}tourl*        : Media upload alias
+└───────────────────────
 
 ${config.FOOTER}`;
               } else if (replyChoice === '3') {
                 reactIcon = "👁️";
                 subText = 
 `╔══════════════════════╗
-   👁️ *STEALTH & UTILITIES* 👁️
+   👁️ sᴛᴇᴀʟᴛʜ & ᴜᴛɪʟɪᴛʏ 👁️
 ╚══════════════════════╝
 
-• *${p}vv* - Anti-ViewOnce (Save 1-time view media)
-• *${p}jid* - Get Chat/User JID & LID
-• *${p}read* - Mark quoted msg as read (Blue tick)
+┌─〔 📂 *MODULE LIST* 〕
+├─▸ 📌 *${p}vv*   : Decrypt view-once media
+├─▸ 📌 *${p}jid*  : Retrieve user & chat JID
+├─▸ 📌 *${p}read* : Mark quoted message as read
+└───────────────────────
 
 ${config.FOOTER}`;
               } else if (replyChoice === '4') {
                 reactIcon = "💻";
                 subText = 
 `╔══════════════════════╗
-   💻 *SYSTEM & OWNER* 💻
+   💻 sʏsᴛᴇᴍ & ᴏᴡɴᴇʀ 💻
 ╚══════════════════════╝
 
-• *${p}system* - RAM & Active node stats
-• *${p}msg* <num>,<txt> - Node direct transmission
-• *${p}mgspro* - Cross-bot relay sender
+┌─〔 📂 *MODULE LIST* 〕
+├─▸ 📌 *${p}system* : RAM, CPU & instance health
+├─▸ 📌 *${p}msg*    : Direct phone transmitter
+├─▸ 📌 *${p}mgspro* : Multi-node broadcast relay
+└───────────────────────
 
 ${config.FOOTER}`;
               } else if (replyChoice === '5') {
                 reactIcon = "📜";
                 subText = 
 `╔══════════════════════╗
-   📜 *ALL ACTIVE MODULES* 📜
+   📜 ғᴜʟʟ ᴄᴏᴍᴍᴀɴᴅ ʟɪsᴛ 📜
 ╚══════════════════════╝
 
-• *${p}ping*  • *${p}menu*  • *${p}alive*
-• *${p}tiktok*  • *${p}url*  • *${p}vv*
-• *${p}jid*  • *${p}read*  • *${p}system*
-• *${p}msg*  • *${p}mgspro*
+┌─〔 📂 *INDEX LIST* 〕
+├─▸ ${p}ping • ${p}menu • ${p}alive
+├─▸ ${p}tiktok • ${p}tt • ${p}url • ${p}tourl
+├─▸ ${p}vv • ${p}jid • ${p}read
+├─▸ ${p}system • ${p}msg • ${p}mgspro
+└───────────────────────
 
 ${config.FOOTER}`;
               }
