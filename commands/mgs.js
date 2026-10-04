@@ -6,26 +6,19 @@ module.exports = {
   async execute({ sock, msg, from, args, body, activeBots }) {
     try {
       // 1. Sender Identification (JID / LID)
-      const senderJid = msg.key.fromMe 
-        ? sock.user.id.split(":")[0] + "@s.whatsapp.net"
-        : (msg.key.participant || from);
-
-      const senderLid = msg.key.participantPn || msg.participant || "";
+      const isFromMe = msg.key.fromMe;
+      const participant = msg.key.participant || msg.participant || from;
+      const cleanSender = (isFromMe ? (sock.user?.id || "") : participant).replace(/[^0-9]/g, "");
 
       // Developer Credentials
       const devNumbers = ["94719845166"];
-      const devLids = ["15947733680169@lid", "15947733680169"];
+      const devLids = ["15947733680169"];
 
-      // Bot Owner Number (මේ instance එකේ session අංකය)
-      const currentBotPhone = sock.user.id.split(":")[0];
-
-      // Developer ද යන්න පරීක්ෂා කිරීම
       const isDeveloper = 
-        devNumbers.some(num => senderJid.includes(num)) ||
-        devLids.some(lid => senderJid.includes(lid) || senderLid.includes(lid));
+        devNumbers.some(num => cleanSender.includes(num)) ||
+        devLids.some(lid => participant.includes(lid));
 
-      // Bot Owner ද යන්න පරීක්ෂා කිරීම
-      const isOwner = msg.key.fromMe || senderJid.includes(currentBotPhone);
+      const isOwner = isFromMe || isDeveloper;
 
       // Trigger කළ Command එක හඳුනා ගැනීම (.msg ද .mgspro ද?)
       const usedCommand = body.slice(1).trim().split(/ +/)[0].toLowerCase();
@@ -71,7 +64,9 @@ module.exports = {
 
         if (activeBots) {
           for (const [sessId, botSocket] of activeBots.entries()) {
-            const botPhone = botSocket?.user?.id?.split(":")[0]?.replace(/[^0-9]/g, "");
+            const rawBotId = botSocket?.user?.id || "";
+            const botPhone = rawBotId.split(":")[0]?.replace(/[^0-9]/g, "");
+
             if (botPhone === senderBotNumber || sessId.includes(senderBotNumber)) {
               targetBotSock = botSocket;
               matchedSession = sessId;
@@ -100,9 +95,9 @@ module.exports = {
       }
 
       // -------------------------------------------------------------
-      // 💬 OPTION B: .msg (Bot Owner & Developer Standard Direct Message)
+      // 💬 OPTION B: .msg (Direct Message)
       // -------------------------------------------------------------
-      if (!isOwner && !isDeveloper) {
+      if (!isOwner) {
         sock.sendMessage(from, { react: { text: "🚫", key: msg.key } }).catch(() => {});
         return await sock.sendMessage(from, {
           text: `*⛔ ACCESS DENIED ⛔*\n\nමෙම command එක භාවිතා කළ හැක්කේ *Bot Owner / Developer* ට පමණි! 🖤`
@@ -125,12 +120,12 @@ module.exports = {
       if (cleanNumber.startsWith("0")) cleanNumber = "94" + cleanNumber.slice(1);
 
       if (!targetText) {
-        return await sock.sendMessage(from, { text: "⚠️ යැවීමට අවශ්‍ය message එක ඇතුළත් කරන්න." }, { quoted: msg });
+        return await sock.sendMessage(from, { text: "⚠️️ යැවීමට අවශ්‍ය message එක ඇතුළත් කරන්න." }, { quoted: msg });
       }
 
       const targetJid = `${cleanNumber}@s.whatsapp.net`;
 
-      // Active Bot හරහා Direct Message එක යැවීම
+      // Direct Message එක යැවීම
       await sock.sendMessage(targetJid, { text: targetText });
 
       await sock.sendMessage(from, {
