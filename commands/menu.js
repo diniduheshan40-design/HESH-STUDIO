@@ -1,4 +1,5 @@
 const path = require('path');
+const axios = require('axios');
 
 // Safe Config Fallback
 let config = {
@@ -17,6 +18,16 @@ try {
 // Active Sessions Store
 global.menuTracker = global.menuTracker || new Map();
 let isMenuHooked = false;
+
+// Safe Image Buffer Fetcher
+async function getImageBuffer(url) {
+  try {
+    const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
+    return Buffer.from(res.data);
+  } catch (_) {
+    return null;
+  }
+}
 
 module.exports = {
   name: "menu",
@@ -58,17 +69,28 @@ module.exports = {
 
 ${config.FOOTER}`;
 
-      // Send Menu with Logo
-      const sentMsg = await sock.sendMessage(from, {
-        image: { url: config.LOGO_URL },
-        caption: mainText
-      }, { quoted: msg });
+      // Logo Buffer එක download කරගැනීම (Timeout / Refusal වළක්වා ගැනීමට)
+      const imgBuffer = await getImageBuffer(config.LOGO_URL);
+
+      let sentMsg;
+      if (imgBuffer) {
+        sentMsg = await sock.sendMessage(from, {
+          image: imgBuffer,
+          caption: mainText
+        }, { quoted: msg });
+      } else {
+        // Image එක Refuse වුවහොත් Text මඟින් Menu එක Deliver වේ
+        sentMsg = await sock.sendMessage(from, {
+          text: mainText
+        }, { quoted: msg });
+      }
 
       // Session Tracking (Valid for 5 Mins)
       const menuId = sentMsg.key.id;
       global.menuTracker.set(menuId, {
         chat: from,
         pref: pref,
+        img: imgBuffer,
         time: Date.now()
       });
 
@@ -76,7 +98,7 @@ ${config.FOOTER}`;
         global.menuTracker.delete(menuId);
       }, 5 * 60 * 1000);
 
-      // Register Internal Socket Listener Once
+      // Register Internal Socket Listener
       if (!isMenuHooked) {
         isMenuHooked = true;
 
@@ -134,7 +156,7 @@ ${config.FOOTER}`;
                 reactIcon = "👁️";
                 subText = 
 `╔══════════════════════╗
-   👁️ *STEALTH & UTILITIES* 👁️️
+   👁️ *STEALTH & UTILITIES* 👁️
 ╚══════════════════════╝
 
 • *${p}vv* - Anti-ViewOnce (Save 1-time view media)
@@ -169,14 +191,19 @@ ${config.FOOTER}`;
 ${config.FOOTER}`;
               }
 
-              // Deliver Sub-Menu with Logo and Reaction
               if (subText) {
                 sock.sendMessage(currentChat, { react: { text: reactIcon, key: inMsg.key } }).catch(() => {});
 
-                await sock.sendMessage(currentChat, {
-                  image: { url: config.LOGO_URL },
-                  caption: subText
-                }, { quoted: inMsg });
+                if (sessionData.img) {
+                  await sock.sendMessage(currentChat, {
+                    image: sessionData.img,
+                    caption: subText
+                  }, { quoted: inMsg });
+                } else {
+                  await sock.sendMessage(currentChat, {
+                    text: subText
+                  }, { quoted: inMsg });
+                }
               }
             }
           } catch (listenerError) {
