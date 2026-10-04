@@ -17,6 +17,15 @@ const {
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
 
+// Render Server Crash Guard (428 Connection Closed / Unhandled Rejection Fix)
+process.on('uncaughtException', (err) => {
+    console.error(chalk.red('[GLOBAL UNCAUGHT EXCEPTION]:'), err.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error(chalk.red('[GLOBAL UNHANDLED REJECTION]:'), reason?.message || reason);
+});
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -31,10 +40,15 @@ const activeBots = new Map();
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
+/**
+ * Commands loader with alias mapping
+ */
 function loadCommands() {
     commands.clear();
     const cmdDir = path.join(__dirname, 'commands');
-    if (!fs.existsSync(cmdDir)) fs.mkdirSync(cmdDir, { recursive: true });
+    if (!fs.existsSync(cmdDir)) {
+        fs.mkdirSync(cmdDir, { recursive: true });
+    }
 
     const files = fs.readdirSync(cmdDir).filter(f => f.endsWith('.js'));
     for (const file of files) {
@@ -42,17 +56,27 @@ function loadCommands() {
             const filePath = path.join(cmdDir, file);
             delete require.cache[require.resolve(filePath)];
             const cmd = require(filePath);
+
             if (cmd.name && typeof cmd.execute === 'function') {
                 commands.set(cmd.name.toLowerCase(), cmd);
+
+                if (Array.isArray(cmd.alias)) {
+                    cmd.alias.forEach(alias => {
+                        commands.set(alias.toLowerCase(), cmd);
+                    });
+                }
             }
         } catch (e) {
             console.error(chalk.red(`[FAIL] ${file}:${e.message}`));
         }
     }
-    console.log(chalk.red.bold(`\n[${BOT_TAG}] CORE SYSTEMS LOADED:${commands.size} COMMANDS\n`));
+    console.log(chalk.red.bold(`\n[${BOT_TAG}] CORE SYSTEMS LOADED:${commands.size} COMMAND HANDLERS\n`));
 }
 loadCommands();
 
+/**
+ * WhatsApp message wrapper unpacker
+ */
 function getMessageText(msg) {
     if (!msg || !msg.message) return '';
     let m = msg.message;
@@ -74,6 +98,9 @@ function getMessageText(msg) {
     ).trim();
 }
 
+/**
+ * Single Bot Instance Engine
+ */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
     const sendResponse = (status, data) => {
@@ -99,11 +126,13 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             msgRetryCounterCache,
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
-            markOnlineOnConnect: true,
+            markOnlineOnConnect: false,
             connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 25000
+            defaultQueryTimeoutMs: 60000,
+            keepAliveIntervalMs: 30000
         });
 
+        // Pairing Code Request Handler
         if (!sock.authState.creds.registered && phoneNumber) {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
             setTimeout(async () => {
@@ -122,6 +151,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
         sock.ev.on('creds.update', saveCreds);
 
+        // Connection Management & Safe Auto-Reconnect
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
 
@@ -129,11 +159,20 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
+                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status:${statusCode})`));
+
+                try {
+                    sock.ev.removeAllListeners();
+                    sock.ws?.close();
+                } catch (_) {}
+
                 if (shouldReconnect) {
-                    console.log(chalk.yellow(`[${BOT_TAG}] Reconnecting [${sessionId}]...`));
-                    setTimeout(() => startSingleBot(sessionId), 4000);
+                    console.log(chalk.yellow(`[${BOT_TAG}] Reconnecting [${sessionId}] in 5s...`));
+                    setTimeout(() => {
+                        startSingleBot(sessionId).catch(e => console.error("Reconnect err:", e.message));
+                    }, 5000);
                 } else {
-                    console.log(chalk.red(`[${BOT_TAG}] Session terminated [${sessionId}]`));
+                    console.log(chalk.red(`[${BOT_TAG}] Session Logged Out [${sessionId}]`));
                     await clearSession();
                     activeBots.delete(sessionId);
                 }
@@ -143,6 +182,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
+        // Fast Message Upsert Listener
         sock.ev.on('messages.upsert', async (chatUpdate) => {
             try {
                 if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
@@ -158,6 +198,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
                     const command = cmdName.toLowerCase();
 
+                    // Registered Commands Trigger
                     if (commands.has(command)) {
                         const cmdModule = commands.get(command);
                         await cmdModule.execute({
@@ -173,8 +214,11 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
+                    // Native Fallbacks (Folder load නොවුණත් run වන commands)
                     switch (command) {
-                        case 'ping': {
+                        case 'ping':
+                        case 'p':
+                        case 'speed': {
                             const start = Date.now();
                             await sock.sendMessage(from, { 
                                 text: `⚡ *DARK-DINU SPEED:*\n🔥 Latency: \`${Date.now() - start}ms\`\n🖤 Active Nodes: \`${activeBots.size}\`` 
@@ -203,7 +247,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             text += `│ ⚡ ${PREFIX}alive\n`;
                             text += `│ ⚡ ${PREFIX}menu\n`;
                             commands.forEach((c) => {
-                                if (!['ping', 'alive', 'menu'].includes(c.name)) {
+                                if (!['ping', 'alive', 'menu', 'p', 'speed'].includes(c.name)) {
                                     text += `│ ⚡ ${PREFIX}${c.name}\n`;
                                 }
                             });
@@ -225,13 +269,16 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     }
 }
 
+/**
+ * Bootstrap existing DB sessions
+ */
 async function autoReconnectAllBots() {
     try {
         const sessions = await SessionModel.distinct('sessionId');
         console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
         for (const id of sessions) {
             startSingleBot(id);
-            await delay(2000);
+            await delay(2500);
         }
     } catch (err) {
         console.error(chalk.red('Boot Error:'), err);
@@ -467,11 +514,11 @@ app.get('/status', (req, res) => {
     res.json({
         engine: BOT_TAG,
         activeCount: activeBots.size,
-        nodes: Array.from(activeBots.keys()),
-        memoryCacheKeys: SessionModel.collection.collectionName
+        nodes: Array.from(activeBots.keys())
     });
 });
 
+// Database & Server Startup
 mongoose.connect(MONGO_URL)
     .then(async () => {
         console.log(chalk.red.bold(`[${BOT_TAG}] MONGODB CLUSTER AUTHENTICATED.`));
