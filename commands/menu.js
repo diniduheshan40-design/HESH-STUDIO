@@ -37,7 +37,7 @@ module.exports = {
 
   async execute({ sock, msg, from, prefix, commands, activeBotsCount }) {
     try {
-      sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+      sock.sendMessage(from, { react: { text: "📜", key: msg.key } }).catch(() => {});
 
       const uptimeSec = process.uptime();
       const hours = Math.floor(uptimeSec / 3600);
