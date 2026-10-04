@@ -17,7 +17,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
 
-// Render Server Crash Guard (428 Connection Closed / Unhandled Rejection Fix)
+// Global Error Guards (428 Connection Closed / Unhandled Rejections වලින් server crash වීම වළක්වයි)
 process.on('uncaughtException', (err) => {
     console.error(chalk.red('[GLOBAL UNCAUGHT EXCEPTION]:'), err.message || err);
 });
@@ -41,7 +41,8 @@ const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
 /**
- * Commands loader with alias mapping
+ * ⚡ Live Hot-Reload Command Engine
+ * Commands folder එකේ file එකක් save කළ සැනින් auto-reload වේ.
  */
 function loadCommands() {
     commands.clear();
@@ -54,12 +55,13 @@ function loadCommands() {
     for (const file of files) {
         try {
             const filePath = path.join(cmdDir, file);
-            delete require.cache[require.resolve(filePath)];
+            delete require.cache[require.resolve(filePath)]; // පැරණි cache clear කරයි
             const cmd = require(filePath);
 
             if (cmd.name && typeof cmd.execute === 'function') {
                 commands.set(cmd.name.toLowerCase(), cmd);
 
+                // Aliases support (.p, .speed etc.)
                 if (Array.isArray(cmd.alias)) {
                     cmd.alias.forEach(alias => {
                         commands.set(alias.toLowerCase(), cmd);
@@ -67,12 +69,30 @@ function loadCommands() {
                 }
             }
         } catch (e) {
-            console.error(chalk.red(`[FAIL] ${file}:${e.message}`));
+            console.error(chalk.red(`[FAIL] ${file}: ${e.message}`));
         }
     }
-    console.log(chalk.red.bold(`\n[${BOT_TAG}] CORE SYSTEMS LOADED:${commands.size} COMMAND HANDLERS\n`));
+    console.log(chalk.red.bold(`\n[${BOT_TAG}] CORE SYSTEMS LOADED: ${commands.size} COMMAND HANDLERS\n`));
 }
+
+// Initial Commands Load
 loadCommands();
+
+// Commands Folder Hot-Reload Watcher
+const cmdFolder = path.join(__dirname, 'commands');
+let reloadTimeout;
+
+fs.watch(cmdFolder, (eventType, filename) => {
+    if (filename && filename.endsWith('.js')) {
+        clearTimeout(reloadTimeout);
+        reloadTimeout = setTimeout(() => {
+            console.log(chalk.yellow(`\n[${BOT_TAG}] File change detected: ${filename}`));
+            console.log(chalk.cyan(`[${BOT_TAG}] Live reloading commands...`));
+            loadCommands();
+            console.log(chalk.green(`[${BOT_TAG}] ✅ Commands reloaded successfully!\n`));
+        }, 300);
+    }
+});
 
 /**
  * WhatsApp message wrapper unpacker
@@ -132,7 +152,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             keepAliveIntervalMs: 30000
         });
 
-        // Pairing Code Request Handler
+        // Pairing Code Handler
         if (!sock.authState.creds.registered && phoneNumber) {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
             setTimeout(async () => {
@@ -159,7 +179,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status:${statusCode})`));
+                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status: ${statusCode})`));
 
                 try {
                     sock.ev.removeAllListeners();
@@ -182,7 +202,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
-        // Fast Message Upsert Listener
+        // Message Listener
         sock.ev.on('messages.upsert', async (chatUpdate) => {
             try {
                 if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
@@ -198,38 +218,32 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
                     const command = cmdName.toLowerCase();
 
-                    // Registered Commands Trigger
+                    // 1. Registered Commands Execution (Commands Folder)
                     if (commands.has(command)) {
-                        const cmdModule = commands.get(command);
-                        await cmdModule.execute({
-                            sock,
-                            msg,
-                            from,
-                            args,
-                            body,
-                            sessionId,
-                            commands,
-                            activeBotsCount: activeBots.size
-                        });
+                        try {
+                            const cmdModule = commands.get(command);
+                            await cmdModule.execute({
+                                sock,
+                                msg,
+                                from,
+                                args,
+                                body,
+                                sessionId,
+                                commands,
+                                activeBotsCount: activeBots.size
+                            });
+                        } catch (err) {
+                            console.error(chalk.red(`[EXECUTE ERR - ${command}]:`), err);
+                        }
                         continue;
                     }
 
-                    // Native Fallbacks (Folder load නොවුණත් run වන commands)
+                    // 2. Built-in Fallbacks (Alive & Menu පමණි - ping මෙතැනින් ඉවත් කර ඇත)
                     switch (command) {
-                        case 'ping':
-                        case 'p':
-                        case 'speed': {
-                            const start = Date.now();
-                            await sock.sendMessage(from, { 
-                                text: `⚡ *DARK-DINU SPEED:*\n🔥 Latency: \`${Date.now() - start}ms\`\n🖤 Active Nodes: \`${activeBots.size}\`` 
-                            }, { quoted: msg });
-                            break;
-                        }
-
                         case 'alive': {
                             await sock.sendMessage(from, { 
                                 text: `*⚡ DARK-DINU V2 ONLINE ⚡*\n\n` +
-                                      `🕶️ *Engine:* High-Speed Node Cache\n` +
+                                      `🕶️ *Engine:* High-Speed Node Cache (Hot-Reload Enabled)\n` +
                                       `🗄️ *Database:* MongoDB Cloud\n` +
                                       `⚙️ *Prefix:* [ ${PREFIX} ]\n` +
                                       `⚡ *Uptime Status:* 100% Zero Lag`
@@ -242,15 +256,14 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             text += `│ ✦ Prefix: [ ${PREFIX} ]\n`;
                             text += `│ ✦ Nodes: ${activeBots.size}\n`;
                             text += `└───⊷\n\n`;
-                            text += `┌───⊷ *CORE* ⊶\n`;
-                            text += `│ ⚡ ${PREFIX}ping\n`;
-                            text += `│ ⚡ ${PREFIX}alive\n`;
-                            text += `│ ⚡ ${PREFIX}menu\n`;
-                            commands.forEach((c) => {
-                                if (!['ping', 'alive', 'menu', 'p', 'speed'].includes(c.name)) {
-                                    text += `│ ⚡ ${PREFIX}${c.name}\n`;
-                                }
+                            text += `┌───⊷ *COMMANDS* ⊶\n`;
+                            
+                            const uniqueCmds = new Set();
+                            commands.forEach((c) => uniqueCmds.add(c.name));
+                            uniqueCmds.forEach((name) => {
+                                text += `│ ⚡ ${PREFIX}${name}\n`;
                             });
+
                             text += `└───⊷\n\n*DARK-DINU SYSTEM ENGINE*`;
                             await sock.sendMessage(from, { text }, { quoted: msg });
                             break;
