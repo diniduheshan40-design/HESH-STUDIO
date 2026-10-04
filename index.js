@@ -251,6 +251,40 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
+                    // ==========================================
+                    // 🎵 TIKTOK INTERACTIVE REPLY DOWNLOADER
+                    // ==========================================
+                    const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
+                    const userReply = getMessageText(msg).trim();
+
+                    if (quotedId && global.ttCache && global.ttCache.has(quotedId)) {
+                        const ttData = global.ttCache.get(quotedId);
+
+                        if (userReply === '1') {
+                            sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: ttData.hd },
+                                caption: `*🎬 DARK-DINU TIKTOK HD*\n📌 *Title:* ${ttData.title}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        } else if (userReply === '2') {
+                            sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: ttData.sd },
+                                caption: `*🎬 DARK-DINU TIKTOK SD*\n📌 *Title:* ${ttData.title}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        } else if (userReply === '3') {
+                            sock.sendMessage(from, { react: { text: "🎙️", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                audio: { url: ttData.audio },
+                                mimetype: 'audio/mp4',
+                                ptt: true
+                            }, { quoted: msg });
+                            return;
+                        }
+                    }
+
                     const body = getMessageText(msg);
                     if (!body || !body.startsWith(PREFIX)) continue;
 
