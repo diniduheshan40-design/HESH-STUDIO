@@ -12,11 +12,15 @@ sessionSchema.index({ sessionId: 1, keyId: 1 }, { unique: true });
 const SessionModel = mongoose.models.Session || mongoose.model('Session', sessionSchema);
 
 /**
- * MongoDB Multi-Device Auth Engine (Zero Data-Loss)
+ * Super Ultra-Fast MongoDB Multi-Device Auth Engine (Zero Data-Loss)
  */
 async function useMongoAuthState(sessionId) {
+    // RAM Cache එකක් මඟින් DB latency එක Signal keys වලට බලපෑම වළක්වයි
+    const localCache = new Map();
+
     const writeData = async (data, id) => {
         try {
+            localCache.set(id, data);
             const serialized = JSON.stringify(data, BufferJSON.replacer);
             await SessionModel.updateOne(
                 { sessionId, keyId: id },
@@ -30,9 +34,14 @@ async function useMongoAuthState(sessionId) {
 
     const readData = async (id) => {
         try {
+            if (localCache.has(id)) {
+                return localCache.get(id);
+            }
             const doc = await SessionModel.findOne({ sessionId, keyId: id }).lean();
             if (doc && doc.data) {
-                return JSON.parse(doc.data, BufferJSON.reviver);
+                const parsed = JSON.parse(doc.data, BufferJSON.reviver);
+                localCache.set(id, parsed);
+                return parsed;
             }
             return null;
         } catch (err) {
@@ -43,6 +52,7 @@ async function useMongoAuthState(sessionId) {
 
     const removeData = async (id) => {
         try {
+            localCache.delete(id);
             await SessionModel.deleteOne({ sessionId, keyId: id });
         } catch (err) {
             console.error(`[AUTH REMOVE ERR] Key: ${id}:`, err.message);
@@ -70,21 +80,47 @@ async function useMongoAuthState(sessionId) {
                     return data;
                 },
                 set: async (data) => {
-                    const tasks = [];
+                    const bulkOps = [];
                     for (const category in data) {
                         for (const id in data[category]) {
                             const value = data[category][id];
                             const key = `${category}-${id}`;
-                            tasks.push(value ? writeData(value, key) : removeData(key));
+
+                            if (value) {
+                                localCache.set(key, value);
+                                const serialized = JSON.stringify(value, BufferJSON.replacer);
+                                bulkOps.push({
+                                    updateOne: {
+                                        filter: { sessionId, keyId: key },
+                                        update: { $set: { data: serialized } },
+                                        upsert: true
+                                    }
+                                });
+                            } else {
+                                localCache.delete(key);
+                                bulkOps.push({
+                                    deleteOne: {
+                                        filter: { sessionId, keyId: key }
+                                    }
+                                });
+                            }
                         }
                     }
-                    await Promise.all(tasks);
+
+                    if (bulkOps.length > 0) {
+                        try {
+                            await SessionModel.bulkWrite(bulkOps, { ordered: false });
+                        } catch (bulkErr) {
+                            console.error('[AUTH BULK WRITE ERR]:', bulkErr.message);
+                        }
+                    }
                 }
             }
         },
         saveCreds: () => writeData(creds, 'creds'),
         clearSession: async () => {
             try {
+                localCache.clear();
                 await SessionModel.deleteMany({ sessionId });
             } catch (err) {
                 console.error("[AUTH CLEAR ERR]:", err.message);
