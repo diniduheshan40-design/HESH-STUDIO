@@ -7,13 +7,16 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@whiskeysockets/baileys": "^6.7.24",
+    "axios": "^1.7.7",
     "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
     "mongoose": "^8.3.1",
     "node-cache": "^5.1.2",
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "yt-search": "^2.11.1"
   }
 }
