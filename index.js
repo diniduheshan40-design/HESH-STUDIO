@@ -5,6 +5,8 @@ const mongoose = require('mongoose');
 const express = require('express');
 const chalk = require('chalk');
 const pino = require('pino');
+const cors = require('cors');
+const NodeCache = require('node-cache');
 const {
     default: makeWASocket,
     DisconnectReason,
@@ -16,57 +18,44 @@ const {
 const { useMongoAuthState, SessionModel } = require('./auth');
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const MONGO_URL = process.env.MONGODB_URL || "mongodb+srv://heshanxmd43_db_user:FEMEM3yjl69L0SuF@cluster0.b6nhi22.mongodb.net/?appName=Cluster0";
 const PORT = process.env.PORT || 10000;
 const BOT_TAG = "DARK-DINU";
-const PREFIX = ".";
+const PREFIX = process.env.PREFIX || ".";
 
 const activeBots = new Map();
 const commands = new Map();
+const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
-/**
- * Commands dynamic loading with case-insensitive directory check
- */
 function loadCommands() {
     commands.clear();
     const cmdDir = path.join(__dirname, 'commands');
+    if (!fs.existsSync(cmdDir)) fs.mkdirSync(cmdDir, { recursive: true });
 
-    if (!fs.existsSync(cmdDir)) {
-        fs.mkdirSync(cmdDir, { recursive: true });
-    }
-
-    const commandFiles = fs.readdirSync(cmdDir).filter(file => file.endsWith('.js'));
-
-    for (const file of commandFiles) {
+    const files = fs.readdirSync(cmdDir).filter(f => f.endsWith('.js'));
+    for (const file of files) {
         try {
             const filePath = path.join(cmdDir, file);
             delete require.cache[require.resolve(filePath)];
-            const command = require(filePath);
-
-            if (command.name && typeof command.execute === 'function') {
-                commands.set(command.name.toLowerCase(), command);
-                console.log(chalk.green(`[CMD] Loaded: ${command.name}`));
+            const cmd = require(filePath);
+            if (cmd.name && typeof cmd.execute === 'function') {
+                commands.set(cmd.name.toLowerCase(), cmd);
             }
-        } catch (error) {
-            console.error(chalk.red(`[CMD ERROR] Failed to load ${file}:`), error);
+        } catch (e) {
+            console.error(chalk.red(`[FAIL] ${file}:${e.message}`));
         }
     }
-    console.log(chalk.cyan(`[${BOT_TAG}] Total commands loaded: ${commands.size}`));
+    console.log(chalk.red.bold(`\n[${BOT_TAG}] CORE SYSTEMS LOADED:${commands.size} COMMANDS\n`));
 }
-
 loadCommands();
 
-/**
- * Deep text extractor - WhatsApp Message wrappers සියල්ල unpack කරයි
- */
 function getMessageText(msg) {
     if (!msg || !msg.message) return '';
     let m = msg.message;
-
-    // Ephemeral / ViewOnce / Document wrappers unwrapping
     if (m.ephemeralMessage) m = m.ephemeralMessage.message;
     if (m.viewOnceMessageV2) m = m.viewOnceMessageV2.message;
     if (m.viewOnceMessage) m = m.viewOnceMessage.message;
@@ -85,16 +74,12 @@ function getMessageText(msg) {
     ).trim();
 }
 
-/**
- * Single Bot Instance Runner
- */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
-
     const sendResponse = (status, data) => {
         if (!responded && res && !res.headersSent) {
             responded = true;
-            return res.json(Object.assign({ status }, data));
+            return res.json({ status, ...data });
         }
     };
 
@@ -106,39 +91,37 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             version,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false,
-            browser: Browsers.ubuntu('Chrome'),
+            browser: Browsers.macOS('Desktop'),
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
             },
+            msgRetryCounterCache,
             generateHighQualityLinkPreview: true,
-            syncFullHistory: false
+            syncFullHistory: false,
+            markOnlineOnConnect: true,
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 25000
         });
 
-        // Pairing Code Handler
         if (!sock.authState.creds.registered && phoneNumber) {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-
             setTimeout(async () => {
                 try {
-                    console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
                     const code = await sock.requestPairingCode(cleanNumber);
-                    console.log(chalk.green(`[${BOT_TAG}] Pairing Code: ${code}`));
                     sendResponse(true, { sessionId, pairingCode: code });
                 } catch (err) {
-                    console.error(chalk.red(`[${BOT_TAG}] Pairing Code Error:`), err);
-                    sendResponse(false, { error: err.message || 'Failed to request pairing code' });
+                    sendResponse(false, { error: err.message || 'Pairing error' });
                 }
-            }, 3000);
+            }, 2500);
 
             setTimeout(() => {
-                sendResponse(false, { error: 'Request timed out. Please try again.' });
-            }, 25000);
+                sendResponse(false, { error: 'Request timeout. Try again.' });
+            }, 30000);
         }
 
         sock.ev.on('creds.update', saveCreds);
 
-        // Connection Handling
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
 
@@ -146,32 +129,26 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Disconnected. Code: ${statusCode}`));
-
                 if (shouldReconnect) {
-                    console.log(chalk.yellow(`[${BOT_TAG}] [${sessionId}] Reconnecting...`));
-                    setTimeout(() => startSingleBot(sessionId), 5000);
+                    console.log(chalk.yellow(`[${BOT_TAG}] Reconnecting [${sessionId}]...`));
+                    setTimeout(() => startSingleBot(sessionId), 4000);
                 } else {
-                    console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Session Expired/Logged Out.`));
+                    console.log(chalk.red(`[${BOT_TAG}] Session terminated [${sessionId}]`));
                     await clearSession();
                     activeBots.delete(sessionId);
                 }
             } else if (connection === 'open') {
-                console.log(chalk.green.bold(`\n==============================================`));
-                console.log(chalk.green.bold(` [${BOT_TAG}] [${sessionId}] CONNECTED & READY! `));
-                console.log(chalk.green.bold(`==============================================\n`));
+                console.log(chalk.black.bgRed.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED & ACTIVE `));
                 activeBots.set(sessionId, sock);
             }
         });
 
-        // Message Handling (Multi-message loop & Direct Fallback)
         sock.ev.on('messages.upsert', async (chatUpdate) => {
             try {
-                if (!chatUpdate.messages) return;
+                if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
 
                 for (const msg of chatUpdate.messages) {
-                    if (!msg || !msg.message) continue;
-
+                    if (!msg.message) continue;
                     const from = msg.key.remoteJid;
                     if (from === 'status@broadcast') continue;
 
@@ -181,9 +158,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
                     const command = cmdName.toLowerCase();
 
-                    console.log(chalk.magenta(`[${BOT_TAG}] [${sessionId}] Command Detected: "${command}" from ${from}`));
-
-                    // 1. External command file එකක් තියෙනවා නම් එය run කිරීම
                     if (commands.has(command)) {
                         const cmdModule = commands.get(command);
                         await cmdModule.execute({
@@ -199,73 +173,72 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
-                    // 2. Built-in Fail-safe Commands (Commands folder එක load නොවුනත් මේවා 100% වැඩ කරයි)
                     switch (command) {
                         case 'ping': {
                             const start = Date.now();
-                            const latency = Date.now() - start;
                             await sock.sendMessage(from, { 
-                                text: `*Pong!* 🏓\n⚡ *Speed:* ${latency}ms\n🤖 *Bot:* ${BOT_TAG}\n🆔 *Session:* ${sessionId}` 
+                                text: `⚡ *DARK-DINU SPEED:*\n🔥 Latency: \`${Date.now() - start}ms\`\n🖤 Active Nodes: \`${activeBots.size}\`` 
                             }, { quoted: msg });
                             break;
                         }
 
                         case 'alive': {
-                            const aliveText = `*👋 DARK-DINU MD Multi-Bot is Online!*\n\n` +
-                                              `⚡ *Database:* MongoDB\n` +
-                                              `⚙️ *Prefix:* ${PREFIX}\n` +
-                                              `🤖 *Active Sessions:* ${activeBots.size}`;
-                            await sock.sendMessage(from, { text: aliveText }, { quoted: msg });
+                            await sock.sendMessage(from, { 
+                                text: `*⚡ DARK-DINU V2 ONLINE ⚡*\n\n` +
+                                      `🕶️ *Engine:* High-Speed Node Cache\n` +
+                                      `🗄️ *Database:* MongoDB Cloud\n` +
+                                      `⚙️ *Prefix:* [ ${PREFIX} ]\n` +
+                                      `⚡ *Uptime Status:* 100% Zero Lag`
+                            }, { quoted: msg });
                             break;
                         }
 
                         case 'menu': {
-                            let list = `╭━━━〔 *${BOT_TAG} MENU* 〕━━━╮\n┃\n`;
-                            list += `┃ 🔹 ${PREFIX}ping\n`;
-                            list += `┃ 🔹 ${PREFIX}alive\n`;
-                            list += `┃ 🔹 ${PREFIX}menu\n`;
+                            let text = `┌───⊷ *DARK-DINU V2* ⊶\n`;
+                            text += `│ ✦ Prefix: [ ${PREFIX} ]\n`;
+                            text += `│ ✦ Nodes: ${activeBots.size}\n`;
+                            text += `└───⊷\n\n`;
+                            text += `┌───⊷ *CORE* ⊶\n`;
+                            text += `│ ⚡ ${PREFIX}ping\n`;
+                            text += `│ ⚡ ${PREFIX}alive\n`;
+                            text += `│ ⚡ ${PREFIX}menu\n`;
                             commands.forEach((c) => {
                                 if (!['ping', 'alive', 'menu'].includes(c.name)) {
-                                    list += `┃ 🔹 ${PREFIX}${c.name}\n`;
+                                    text += `│ ⚡ ${PREFIX}${c.name}\n`;
                                 }
                             });
-                            list += `┃\n╰━━━━━━━━━━━━━━━━━━━━╯`;
-                            await sock.sendMessage(from, { text: list }, { quoted: msg });
+                            text += `└───⊷\n\n*DARK-DINU SYSTEM ENGINE*`;
+                            await sock.sendMessage(from, { text }, { quoted: msg });
                             break;
                         }
                     }
                 }
             } catch (err) {
-                console.error(chalk.red(`[${BOT_TAG}] Message Event Error:`), err);
+                console.error(chalk.red(`[MSG ERR]:`), err);
             }
         });
 
         return sock;
     } catch (e) {
-        console.error(chalk.red(`Error in bot ${sessionId}:`), e);
+        console.error(chalk.red(`Execution Error:`), e);
         sendResponse(false, { error: e.message });
     }
 }
 
-/**
- * Reconnect all saved sessions on startup
- */
 async function autoReconnectAllBots() {
     try {
-        console.log(chalk.cyan(`[${BOT_TAG}] Checking MongoDB for sessions...`));
-        const distinctSessions = await SessionModel.distinct('sessionId');
-        console.log(chalk.green(`[${BOT_TAG}] Found ${distinctSessions.length} active sessions.`));
-
-        for (const sessionId of distinctSessions) {
-            startSingleBot(sessionId);
-            await delay(3000);
+        const sessions = await SessionModel.distinct('sessionId');
+        console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
+        for (const id of sessions) {
+            startSingleBot(id);
+            await delay(2000);
         }
     } catch (err) {
-        console.error(chalk.red('Error reconnecting bots:'), err);
+        console.error(chalk.red('Boot Error:'), err);
     }
 }
 
-// ================= Web Interface & Pair APIs =================
+// ================= Cyber Dark Interface =================
 
 app.get('/', (req, res) => {
     res.send(`
@@ -274,87 +247,208 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${BOT_TAG} - Pair Code</title>
+        <title>DARK-DINU // SYSTEM ACCESS</title>
+        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
         <style>
-            * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-            body { background: #0b0f19; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
-            .card { background: #161f30; padding: 30px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 100%; max-width: 420px; text-align: center; border: 1px solid #1f2d45; }
-            h2 { color: #00ff88; margin: 0 0 10px 0; font-size: 26px; }
-            p { color: #94a3b8; font-size: 14px; margin-bottom: 25px; }
-            .input-group { text-align: left; margin-bottom: 15px; }
-            label { font-size: 13px; color: #cbd5e1; display: block; margin-bottom: 6px; }
-            input { width: 100%; padding: 12px 14px; background: #0b0f19; border: 1px solid #334155; border-radius: 8px; color: #fff; font-size: 15px; outline: none; }
-            input:focus { border-color: #00ff88; }
-            button { width: 100%; padding: 14px; background: #00ff88; color: #000; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 10px; }
-            button:hover { background: #00cc6a; }
-            button:disabled { background: #475569; cursor: not-allowed; }
-            #result-box { margin-top: 25px; padding: 15px; background: #0b0f19; border-radius: 8px; border: 1px dashed #334155; display: none; }
-            .code-display { font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #38bdf8; margin: 10px 0; user-select: all; cursor: pointer; }
-            .status-badge { font-size: 12px; background: #1e293b; padding: 4px 10px; border-radius: 20px; color: #38bdf8; display: inline-block; margin-bottom: 15px; }
+            :root {
+                --primary: #ff003c;
+                --cyan: #00f0ff;
+                --bg: #050508;
+                --panel: rgba(13, 14, 23, 0.85);
+            }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+                background: var(--bg);
+                font-family: 'Rajdhani', sans-serif;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                color: #fff;
+                background-image: 
+                    radial-gradient(circle at 10% 20%, rgba(255, 0, 60, 0.12) 0%, transparent 40%),
+                    radial-gradient(circle at 90% 80%, rgba(0, 240, 255, 0.08) 0%, transparent 40%);
+            }
+            .panel {
+                width: 90%;
+                max-width: 440px;
+                background: var(--panel);
+                border: 1px solid rgba(255, 0, 60, 0.25);
+                box-shadow: 0 0 40px rgba(255, 0, 60, 0.15), inset 0 0 15px rgba(255, 0, 60, 0.05);
+                border-radius: 12px;
+                padding: 35px 25px;
+                backdrop-filter: blur(16px);
+                position: relative;
+            }
+            .panel::before {
+                content: '';
+                position: absolute;
+                top: 0; left: 10%; right: 10%;
+                height: 2px;
+                background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            }
+            .header {
+                text-align: center;
+                margin-bottom: 25px;
+            }
+            .title {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 26px;
+                font-weight: 900;
+                letter-spacing: 3px;
+                color: #fff;
+                text-shadow: 0 0 10px rgba(255, 0, 60, 0.7);
+            }
+            .subtitle {
+                font-size: 13px;
+                color: #8a8d9e;
+                letter-spacing: 2px;
+                margin-top: 5px;
+            }
+            .field {
+                margin-bottom: 18px;
+            }
+            label {
+                display: block;
+                font-size: 12px;
+                letter-spacing: 1px;
+                color: var(--cyan);
+                margin-bottom: 6px;
+                text-transform: uppercase;
+            }
+            input {
+                width: 100%;
+                background: rgba(0, 0, 0, 0.6);
+                border: 1px solid #1f2333;
+                border-radius: 6px;
+                padding: 12px 14px;
+                color: #fff;
+                font-size: 15px;
+                font-family: inherit;
+                outline: none;
+                transition: border 0.3s;
+            }
+            input:focus {
+                border-color: var(--primary);
+                box-shadow: 0 0 10px rgba(255, 0, 60, 0.3);
+            }
+            .btn {
+                width: 100%;
+                padding: 14px;
+                background: var(--primary);
+                border: none;
+                border-radius: 6px;
+                color: #fff;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 2px;
+                cursor: pointer;
+                transition: 0.3s;
+                text-shadow: 0 0 5px #000;
+                margin-top: 10px;
+            }
+            .btn:hover {
+                background: #d60032;
+                box-shadow: 0 0 20px rgba(255, 0, 60, 0.5);
+            }
+            .btn:disabled {
+                background: #333;
+                cursor: not-allowed;
+            }
+            #code-container {
+                display: none;
+                margin-top: 25px;
+                background: rgba(0, 0, 0, 0.7);
+                border: 1px dashed var(--cyan);
+                border-radius: 6px;
+                padding: 15px;
+                text-align: center;
+            }
+            .code-text {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 30px;
+                letter-spacing: 6px;
+                color: var(--cyan);
+                text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+                cursor: pointer;
+                padding: 5px 0;
+            }
+            .nodes-count {
+                position: absolute;
+                top: 12px;
+                right: 15px;
+                font-size: 11px;
+                color: var(--primary);
+                letter-spacing: 1px;
+            }
         </style>
     </head>
     <body>
-        <div class="card">
-            <div class="status-badge">⚡ Active Bots: ${activeBots.size}</div>
-            <h2>${BOT_TAG} PAIR CODE</h2>
-            <p>Enter your phone number to link your WhatsApp bot.</p>
-            
-            <div class="input-group">
-                <label>Session Name / Bot ID</label>
-                <input type="text" id="botId" placeholder="e.g. dinu_1">
+        <div class="panel">
+            <span class="nodes-count">NODES: ${activeBots.size}</span>
+            <div class="header">
+                <h1 class="title">${BOT_TAG}</h1>
+                <p class="subtitle">MULTI-INSTANCE SYSTEM INTERFACE</p>
             </div>
 
-            <div class="input-group">
-                <label>WhatsApp Number</label>
+            <div class="field">
+                <label>Node Tag (Bot Session ID)</label>
+                <input type="text" id="botId" placeholder="e.g. dinu_matrix">
+            </div>
+
+            <div class="field">
+                <label>Target Number (with Country Code)</label>
                 <input type="text" id="phone" placeholder="947xxxxxxxx">
             </div>
 
-            <button id="submitBtn" onclick="requestCode()">Get Pairing Code</button>
+            <button class="btn" id="actionBtn" onclick="generateCode()">AUTHENTICATE</button>
 
-            <div id="result-box">
-                <span style="font-size: 13px; color: #94a3b8;">Click code to copy:</span>
-                <div class="code-display" id="pairCode" onclick="copyCode()">--------</div>
-                <small style="color: #64748b;">WhatsApp > Linked Devices > Link with phone number</small>
+            <div id="code-container">
+                <div style="font-size: 11px; color: #8a8d9e; margin-bottom: 5px;">TAP CODE TO COPY</div>
+                <div class="code-text" id="codeOut" onclick="copyValue()">--------</div>
+                <div style="font-size: 12px; color: #555; margin-top: 5px;">Enter in Linked Devices</div>
             </div>
         </div>
 
         <script>
-            async function requestCode() {
+            async function generateCode() {
                 const phone = document.getElementById('phone').value.trim();
                 let botId = document.getElementById('botId').value.trim();
-                const btn = document.getElementById('submitBtn');
-                const resultBox = document.getElementById('result-box');
-                const pairCode = document.getElementById('pairCode');
+                const btn = document.getElementById('actionBtn');
+                const container = document.getElementById('code-container');
+                const codeOut = document.getElementById('codeOut');
 
-                if (!phone) return alert('කරුණාකර WhatsApp අංකය ඇතුළත් කරන්න!');
-                if (!botId) botId = 'dinu_' + Math.floor(Math.random() * 10000);
+                if (!phone) return alert('Enter a valid phone number!');
+                if (!botId) botId = 'node_' + Math.floor(1000 + Math.random() * 9000);
 
-                btn.innerText = 'Connecting to WhatsApp...';
+                btn.innerText = 'INITIALIZING LINK...';
                 btn.disabled = true;
-                resultBox.style.display = 'none';
+                container.style.display = 'none';
 
                 try {
                     const res = await fetch(\`/pair?number=\${encodeURIComponent(phone)}&botId=\${encodeURIComponent(botId)}\`);
                     const data = await res.json();
 
                     if (data.status && data.pairingCode) {
-                        pairCode.innerText = data.pairingCode;
-                        resultBox.style.display = 'block';
+                        codeOut.innerText = data.pairingCode;
+                        container.style.display = 'block';
                     } else {
-                        alert('Error: ' + (data.error || 'Failed to get code. Try again.'));
+                        alert(data.error || 'Connection failed.');
                     }
-                } catch (e) {
-                    alert('Server error! Check server logs.');
+                } catch {
+                    alert('System offline or server error.');
                 } finally {
-                    btn.innerText = 'Get Pairing Code';
+                    btn.innerText = 'AUTHENTICATE';
                     btn.disabled = false;
                 }
             }
 
-            function copyCode() {
-                const code = document.getElementById('pairCode').innerText;
-                navigator.clipboard.writeText(code);
-                alert('Copied: ' + code);
+            function copyValue() {
+                const text = document.getElementById('codeOut').innerText;
+                navigator.clipboard.writeText(text);
+                alert('COPIED: ' + text);
             }
         </script>
     </body>
@@ -364,32 +458,26 @@ app.get('/', (req, res) => {
 
 app.get('/pair', async (req, res) => {
     const { number, botId } = req.query;
-    if (!number) {
-        return res.status(400).json({ status: false, message: 'Please provide ?number=947xxxxxxxx' });
-    }
+    if (!number) return res.status(400).json({ status: false, message: 'Invalid number' });
     const sessionId = botId || `bot_${Date.now()}`;
     await startSingleBot(sessionId, number, res);
 });
 
 app.get('/status', (req, res) => {
     res.json({
-        botName: BOT_TAG,
-        activeBotsCount: activeBots.size,
-        activeSessions: Array.from(activeBots.keys()),
-        commandsCount: commands.size
+        engine: BOT_TAG,
+        activeCount: activeBots.size,
+        nodes: Array.from(activeBots.keys()),
+        memoryCacheKeys: SessionModel.collection.collectionName
     });
 });
 
-// Database & Server Start
 mongoose.connect(MONGO_URL)
     .then(async () => {
-        console.log(chalk.green(`[${BOT_TAG}] MongoDB Connected Successfully!`));
+        console.log(chalk.red.bold(`[${BOT_TAG}] MONGODB CLUSTER AUTHENTICATED.`));
         await autoReconnectAllBots();
-
         app.listen(PORT, () => {
-            console.log(chalk.blue(`[${BOT_TAG}] Server running on port: ${PORT}`));
+            console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
         });
     })
-    .catch((err) => {
-        console.error(chalk.red('MongoDB Connection Error:'), err);
-    });
+    .catch((err) => console.error(chalk.red('FATAL DB ERROR:'), err));
