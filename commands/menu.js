@@ -1,17 +1,30 @@
-const config = require('../config');
+const path = require('path');
 
-// Interactive Session Tracking
-global.activeMenuSessions = global.activeMenuSessions || new Map();
-let isListenerRegistered = false;
+// Safe Config Fallback
+let config = {
+  BOT_NAME: "DARK-DINU",
+  OWNER_NAME: "DINIDU HESHAN",
+  PREFIX: ".",
+  LOGO_URL: "https://files.catbox.moe/ubar7g.jpg",
+  FOOTER: "> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*"
+};
+
+try {
+  const loadedConfig = require(path.join(process.cwd(), 'config'));
+  config = { ...config, ...loadedConfig };
+} catch (_) {}
+
+// Active Sessions Store
+global.menuTracker = global.menuTracker || new Map();
+let isMenuHooked = false;
 
 module.exports = {
   name: "menu",
   alias: ["help", "list", "panel"],
-  description: "Interactive category menu with automated sub-menu image dispatch",
+  description: "All-in-One Interactive Category Menu",
 
   async execute({ sock, msg, from, prefix, commands, activeBotsCount }) {
     try {
-      // 1. First Trigger React
       sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
 
       const uptimeSec = process.uptime();
@@ -19,17 +32,19 @@ module.exports = {
       const mins = Math.floor((uptimeSec % 3600) / 60);
       const secs = Math.floor(uptimeSec % 60);
 
-      // Main Menu Layout
+      const pref = prefix || config.PREFIX || ".";
+
+      // Main Menu UI
       const mainText = 
 `╔══════════════════════╗
-   🕷️ *${config.BOT_NAME} SYSTEM MENU* 🕷️️
+   🕷️ *${config.BOT_NAME} SYSTEM MENU* 🕷️
 ╚══════════════════════╝
 
 👤 *Owner:* ${config.OWNER_NAME}
-⚡ *Prefix:* [ ${prefix} ]
+⚡ *Prefix:* [ ${pref} ]
 🌐 *Active Nodes:* ${activeBotsCount || 1}
 ⏳ *Uptime:* ${hours}h ${mins}m ${secs}s
-📦 *Total Modules:* ${commands.size}
+📦 *Total Modules:* ${commands?.size || 0}
 
 ┌──────────────────────┐
    *REPLY WITH NUMBER:*
@@ -43,135 +58,136 @@ module.exports = {
 
 ${config.FOOTER}`;
 
-      // Send Main Menu with Image
+      // Send Menu with Logo
       const sentMsg = await sock.sendMessage(from, {
         image: { url: config.LOGO_URL },
         caption: mainText
       }, { quoted: msg });
 
-      // Cache the message ID
-      const menuMsgId = sentMsg.key.id;
-      global.activeMenuSessions.set(menuMsgId, {
-        targetChat: from,
-        createdAt: Date.now()
+      // Session Tracking (Valid for 5 Mins)
+      const menuId = sentMsg.key.id;
+      global.menuTracker.set(menuId, {
+        chat: from,
+        pref: pref,
+        time: Date.now()
       });
 
-      // Expire session in 5 minutes
       setTimeout(() => {
-        global.activeMenuSessions.delete(menuMsgId);
+        global.menuTracker.delete(menuId);
       }, 5 * 60 * 1000);
 
-      // Register Internal Socket Listener (Runs Once inside Command)
-      if (!isListenerRegistered) {
-        isListenerRegistered = true;
+      // Register Internal Socket Listener Once
+      if (!isMenuHooked) {
+        isMenuHooked = true;
 
-        sock.ev.on('messages.upsert', async (chatUpdate) => {
+        sock.ev.on('messages.upsert', async (mUpdate) => {
           try {
-            if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
+            if (!mUpdate.messages || mUpdate.type !== 'notify') return;
 
-            for (const incoming of chatUpdate.messages) {
-              if (!incoming.message) continue;
+            for (const inMsg of mUpdate.messages) {
+              if (!inMsg.message) continue;
 
-              const quotedId = incoming.message?.extendedTextMessage?.contextInfo?.stanzaId;
-              if (!quotedId || !global.activeMenuSessions.has(quotedId)) continue;
+              const targetQuotedId = inMsg.message?.extendedTextMessage?.contextInfo?.stanzaId;
+              if (!targetQuotedId || !global.menuTracker.has(targetQuotedId)) continue;
 
-              const chatJid = incoming.key.remoteJid;
-              const session = global.activeMenuSessions.get(quotedId);
+              const currentChat = inMsg.key.remoteJid;
+              const sessionData = global.menuTracker.get(targetQuotedId);
 
-              // Match original chat
-              if (session.targetChat !== chatJid) continue;
+              if (sessionData.chat !== currentChat) continue;
 
-              const userReply = (
-                incoming.message?.conversation ||
-                incoming.message?.extendedTextMessage?.text ||
+              const replyChoice = (
+                inMsg.message?.conversation ||
+                inMsg.message?.extendedTextMessage?.text ||
                 ''
               ).trim();
 
-              let categoryText = "";
+              const p = sessionData.pref;
+              let subText = "";
               let reactIcon = "";
 
-              if (userReply === '1') {
+              if (replyChoice === '1') {
                 reactIcon = "⚡";
-                categoryText = 
+                subText = 
 `╔══════════════════════╗
    ⚡ *GENERAL COMMANDS* ⚡
 ╚══════════════════════╝
 
-• *${prefix}ping* - Check bot latency
-• *${prefix}menu* - Open command categories
-• *${prefix}alive* - Check system online status
+• *${p}ping* - Check bot latency
+• *${p}menu* - Open main panel
+• *${p}alive* - System health check
 
 ${config.FOOTER}`;
-              } else if (userReply === '2') {
+              } else if (replyChoice === '2') {
                 reactIcon = "📥";
-                categoryText = 
+                subText = 
 `╔══════════════════════╗
    📥 *MEDIA DOWNLOADERS* 📥
 ╚══════════════════════╝
 
-• *${prefix}tiktok* <url> - Download TikTok (HD/SD/Voice)
-• *${prefix}tt* <url> - TikTok short alias
-• *${prefix}url* - Convert replied media to public URL
-• *${prefix}tourl* - URL generator alias
+• *${p}tiktok* <url> - TikTok HD/SD/Voice Downloader
+• *${p}tt* <url> - TikTok short alias
+• *${p}url* - Convert media to direct link
+• *${p}tourl* - URL upload alias
 
 ${config.FOOTER}`;
-              } else if (userReply === '3') {
+              } else if (replyChoice === '3') {
                 reactIcon = "👁️";
-                categoryText = 
+                subText = 
 `╔══════════════════════╗
-   👁️ *STEALTH & UTILITIES* 👁️
+   👁️ *STEALTH & UTILITIES* 👁️️
 ╚══════════════════════╝
 
-• *${prefix}vv* - Anti-ViewOnce (Save 1-time view media)
-• *${prefix}jid* - Inspect User / Group JID & LID
-• *${prefix}read* - Mark quoted message as read (Blue tick)
+• *${p}vv* - Anti-ViewOnce (Save 1-time view media)
+• *${p}jid* - Get Chat/User JID & LID
+• *${p}read* - Mark quoted msg as read (Blue tick)
 
 ${config.FOOTER}`;
-              } else if (userReply === '4') {
+              } else if (replyChoice === '4') {
                 reactIcon = "💻";
-                categoryText = 
+                subText = 
 `╔══════════════════════╗
    💻 *SYSTEM & OWNER* 💻
 ╚══════════════════════╝
 
-• *${prefix}system* - RAM, Node Count, Core metrics
-• *${prefix}node* - Server runtime dashboard
-• *${prefix}msg* <num>,<txt> - Node direct message dispatcher
+• *${p}system* - RAM & Active node stats
+• *${p}msg* <num>,<txt> - Node direct transmission
+• *${p}mgspro* - Cross-bot relay sender
 
 ${config.FOOTER}`;
-              } else if (userReply === '5') {
+              } else if (replyChoice === '5') {
                 reactIcon = "📜";
-                categoryText = 
+                subText = 
 `╔══════════════════════╗
-   📜 *ALL ACTIVE COMMANDS* 📜
+   📜 *ALL ACTIVE MODULES* 📜
 ╚══════════════════════╝
 
-• *${prefix}ping*  • *${prefix}menu*  • *${prefix}alive*
-• *${prefix}tt*    • *${prefix}url*   • *${prefix}vv*
-• *${prefix}jid*   • *${prefix}read*  • *${prefix}system*
-• *${prefix}msg*
+• *${p}ping*  • *${p}menu*  • *${p}alive*
+• *${p}tiktok*  • *${p}url*  • *${p}vv*
+• *${p}jid*  • *${p}read*  • *${p}system*
+• *${p}msg*  • *${p}mgspro*
 
 ${config.FOOTER}`;
               }
 
-              // Send Sub-Category with Logo and React
-              if (categoryText) {
-                sock.sendMessage(chatJid, { react: { text: reactIcon, key: incoming.key } }).catch(() => {});
-                
-                await sock.sendMessage(chatJid, {
+              // Deliver Sub-Menu with Logo and Reaction
+              if (subText) {
+                sock.sendMessage(currentChat, { react: { text: reactIcon, key: inMsg.key } }).catch(() => {});
+
+                await sock.sendMessage(currentChat, {
                   image: { url: config.LOGO_URL },
-                  caption: categoryText
-                }, { quoted: incoming });
+                  caption: subText
+                }, { quoted: inMsg });
               }
             }
-          } catch (listenerErr) {
-            console.error("[MENU INTERNAL LISTENER ERR]:", listenerErr.message);
+          } catch (listenerError) {
+            console.error("[MENU LISTENER ERROR]:", listenerError.message);
           }
         });
       }
 
     } catch (err) {
-      console.error("[MENU ERROR]:", err.message);
+      console.error("[MENU EXECUTION ERROR]:", err);
+      sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
       await sock.sendMessage(from, { text: `❌ Menu Error: ${err.message}` }, { quoted: msg });
     }
   }
