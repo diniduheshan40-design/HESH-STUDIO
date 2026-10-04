@@ -9,17 +9,23 @@ module.exports = {
 
   async execute({ sock, msg, from }) {
     try {
-      const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-      let targetMessage = quoted || msg.message;
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
 
-      // Unpack ViewOnce if wrapped
+      // Extract raw target message
+      let targetMessage = quoted || msg.message;
+      let targetRaw = quoted ? { message: quoted } : msg;
+
+      // Unpack View-Once if wrapped
       if (targetMessage?.viewOnceMessageV2?.message) {
         targetMessage = targetMessage.viewOnceMessageV2.message;
+        targetRaw = { message: targetMessage };
       } else if (targetMessage?.viewOnceMessage?.message) {
         targetMessage = targetMessage.viewOnceMessage.message;
+        targetRaw = { message: targetMessage };
       }
 
-      // Media Type & Extension Detect කිරීම
+      // Media Type & Extension Detection
       let fileExt = '';
       let mediaLabel = '';
 
@@ -48,55 +54,66 @@ module.exports = {
 
       sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      // Baileys media downloader හරහා Buffer එක download කරගැනීම
-      const fakeMsg = { message: targetMessage };
-      const buffer = await downloadMediaMessage(fakeMsg, 'buffer', {});
+      // Download Buffer via Baileys Native Method
+      const buffer = await downloadMediaMessage(
+        targetRaw,
+        'buffer',
+        {},
+        {
+          logger: undefined,
+          reuploadRequest: sock.updateMediaMessage
+        }
+      );
 
       if (!buffer || buffer.length === 0) {
         sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
-        return await sock.sendMessage(from, { text: "❌ Media එක download කිරීමට නොහැකි විය." }, { quoted: msg });
+        return await sock.sendMessage(from, { text: "❌ Media එක download කර ගැනීමට නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න." }, { quoted: msg });
       }
 
-      // Catbox API එකට upload කිරීම (Free, Direct Link & High Speed)
+      // Build Multi-Part Form Data
       const filename = `dark_dinu_${Date.now()}${fileExt}`;
       const form = new FormData();
       form.append('reqtype', 'fileupload');
-      form.append('fileToUpload', buffer, { filename });
+      form.append('fileToUpload', buffer, {
+        filename,
+        contentType: targetMessage.documentMessage?.mimetype || 'application/octet-stream'
+      });
 
+      // Upload to Catbox MOE
       const response = await axios.post('https://catbox.moe/user/api.php', form, {
         headers: {
           ...form.getHeaders()
         },
         timeout: 90000,
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
       });
 
-      const mediaUrl = response.data?.trim();
+      const mediaUrl = typeof response.data === 'string' ? response.data.trim() : null;
 
       if (!mediaUrl || !mediaUrl.startsWith('http')) {
-        throw new Error('Upload failed from host server.');
+        throw new Error('Host API return invalid URL response.');
       }
 
       const sizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
       const resultText = 
-`⚡ *DARK-DINU MEDIA TO URL* ⚡
+`⚡ *DARK-DINU URL ENGINE* ⚡
 
 🔗 *Direct URL:* 
 ${mediaUrl}
 
 📁 *Type:* ${mediaLabel}
 📦 *Size:* ${sizeMB} MB
-🖤 *Status:* PERMANENT PUBLIC LINK`;
+🖤 *Status:* PERMANENT LINK`;
 
       await sock.sendMessage(from, { text: resultText }, { quoted: msg });
       sock.sendMessage(from, { react: { text: "🔗", key: msg.key } }).catch(() => {});
 
     } catch (err) {
-      console.error('[URL CMD ERROR]:', err.message);
+      console.error('[URL CMD ERROR]:', err);
       sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
       await sock.sendMessage(from, {
-        text: `❌ URL එක සාදා ගැනීමට නොහැකි විය: ${err.message}`
+        text: `❌ URL එක සෑදීමට නොහැකි විය: ${err.message || 'Unknown Network Error'}`
       }, { quoted: msg });
     }
   }
