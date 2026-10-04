@@ -5,133 +5,133 @@ module.exports = {
 
   async execute({ sock, msg, from, args, body, activeBots }) {
     try {
-      // 1. Raw Sender Detection
-      const sender = msg.key.fromMe 
-        ? (sock.user?.id || '') 
-        : (msg.key.participant || msg.participant || from || '');
+      // 1. Sender Identification
+      const senderJid = msg.key.fromMe 
+        ? (sock.user?.id || "") 
+        : (msg.key.participant || msg.participant || from || "");
 
-      const cleanSender = sender.replace(/[^0-9]/g, '');
+      const cleanSender = senderJid.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
 
-      // Authorized Numbers (Developer / Owner)
-      const allowedNumbers = ["94719845166"];
-      
-      const isDev = allowedNumbers.some(num => cleanSender.includes(num)) || 
-                    sender.includes("15947733680169");
-      const isOwner = msg.key.fromMe || isDev;
+      // Developer & Owner Whitelist
+      const devNumbers = ["94719845166"];
+      const isDeveloper = devNumbers.some(num => cleanSender.includes(num)) || senderJid.includes("15947733680169");
+      const isOwner = msg.key.fromMe || isDeveloper;
 
-      // Used Command Check
-      const usedCommand = body.slice(1).trim().split(/ +/)[0].toLowerCase();
-      const isProCommand = usedCommand === "mgspro" || usedCommand === "switchmsg";
+      // Command Type
+      const commandTrigger = body.slice(1).trim().split(/ +/)[0].toLowerCase();
+      const isPro = commandTrigger === "mgspro" || commandTrigger === "switchmsg";
 
       // -------------------------------------------------------------
-      // 🛑 OPTION A: .mgspro (Relay Switch)
+      // OPTION A: .mgspro (Cross-Node Relay)
       // -------------------------------------------------------------
-      if (isProCommand) {
-        if (!isDev) {
+      if (isPro) {
+        if (!isDeveloper) {
           sock.sendMessage(from, { react: { text: "🚫", key: msg.key } }).catch(() => {});
           return await sock.sendMessage(from, {
-            text: `*⛔ ACCESS DENIED ⛔*\n\n.mgspro පාවිච්චි කළ හැක්කේ Developer ට පමණි.`
+            text: "*⛔ ACCESS DENIED ⛔*\n\n.mgspro පාවිච්චි කළ හැක්කේ Developer ට පමණි."
           }, { quoted: msg });
         }
 
         const fullText = args.join(" ").trim();
         const parts = fullText.split(",");
 
-        if (!fullText || parts.length < 3) {
+        if (parts.length < 3) {
           return await sock.sendMessage(from, {
-            text: `*⚠️ MGSPRO භාවිතය:*\n.mgspro <sender_bot_number>,<receiver_number>,<message>\n\n*උදා:* .mgspro 9477xxxxxxx,9471xxxxxxx,හායි`
+            text: "*⚠️ MGSPRO භාවිතය:*\n.mgspro <sender_bot_number>,<receiver_number>,<message>\n\n*උදා:* .mgspro 94771033094,94719845166,හෙලෝ"
           }, { quoted: msg });
+        }
+
+        let senderNum = parts[0].replace(/[^0-9]/g, "");
+        if (senderNum.startsWith("0")) senderNum = "94" + senderNum.slice(1);
+
+        let targetNum = parts[1].replace(/[^0-9]/g, "");
+        if (targetNum.startsWith("0")) targetNum = "94" + targetNum.slice(1);
+
+        const textToSend = parts.slice(2).join(",").trim();
+
+        if (!textToSend) {
+          return await sock.sendMessage(from, { text: "⚠️ Message එකක් ඇතුළත් කරන්න." }, { quoted: msg });
         }
 
         sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
 
-        let senderBotNumber = parts[0].trim().replace(/[^0-9]/g, '');
-        if (senderBotNumber.startsWith("0")) senderBotNumber = "94" + senderBotNumber.slice(1);
-
-        let receiverNumber = parts[1].trim().replace(/[^0-9]/g, '');
-        if (receiverNumber.startsWith("0")) receiverNumber = "94" + receiverNumber.slice(1);
-
-        const targetMessage = parts.slice(2).join(",").trim();
-
-        let targetBotSock = null;
-        let matchedSession = null;
+        // Match Bot Instance
+        let relaySock = null;
+        let matchedNode = null;
 
         if (activeBots) {
-          for (const [sessId, botSocket] of activeBots.entries()) {
-            const rawId = botSocket?.user?.id || '';
-            const botPhone = rawId.split(":")[0]?.replace(/[^0-9]/g, '');
-
-            if (botPhone === senderBotNumber || sessId.includes(senderBotNumber)) {
-              targetBotSock = botSocket;
-              matchedSession = sessId;
+          for (const [nodeId, bot] of activeBots.entries()) {
+            const botPhone = (bot?.user?.id || "").split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+            if (botPhone === senderNum || nodeId.includes(senderNum)) {
+              relaySock = bot;
+              matchedNode = nodeId;
               break;
             }
           }
         }
 
-        if (!targetBotSock) {
+        if (!relaySock) {
           sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
           return await sock.sendMessage(from, {
-            text: `*❌ Node Not Found!*\n\n+${senderBotNumber} Bot session එක online නැත.`
+            text: `*❌ Node Offline!*\n+${senderNum} අංකයට අදාළ Bot active නැත.`
           }, { quoted: msg });
         }
 
-        await targetBotSock.sendMessage(`${receiverNumber}@s.whatsapp.net`, {
-          text: targetMessage
-        });
+        const targetJid = `${targetNum}@s.whatsapp.net`;
+        await relaySock.sendMessage(targetJid, { text: textToSend });
 
         await sock.sendMessage(from, {
-          text: `*🚀 CROSS-NODE DELIVERED*\n\n🤖 *From Node:* +${senderBotNumber} [${matchedSession}]\n🎯 *To:* +${receiverNumber}\n💬 *Text:* ${targetMessage}`
+          text: `*🚀 RELAY SUCCESS*\n\n🤖 *Node:* +${senderNum} [${matchedNode}]\n🎯 *To:* +${targetNum}\n💬 *Message:* ${textToSend}`
         }, { quoted: msg });
 
         return sock.sendMessage(from, { react: { text: "🖤", key: msg.key } }).catch(() => {});
       }
 
       // -------------------------------------------------------------
-      // 💬 OPTION B: .msg (Standard Direct Dispatch)
+      // OPTION B: .msg (Direct Send via Current Bot)
       // -------------------------------------------------------------
       if (!isOwner) {
         sock.sendMessage(from, { react: { text: "🚫", key: msg.key } }).catch(() => {});
         return await sock.sendMessage(from, {
-          text: `*⛔ ACCESS DENIED ⛔*\n\nමෙම විධානය Owner හට පමණි.`
+          text: "*⛔ ACCESS DENIED ⛔*\nමෙම විධානය Owner හට පමණි."
         }, { quoted: msg });
       }
 
       const fullText = args.join(" ").trim();
-      if (!fullText || !fullText.includes(",")) {
+      if (!fullText.includes(",")) {
         return await sock.sendMessage(from, {
-          text: `*⚠️ MSG භාවිතය:*\n.msg <number>,<message>\n\n*උදා:* .msg 94719845166,මොකද කරන්නෙ?`
+          text: "*⚠️ MSG භාවිතය:*\n.msg <number>,<message>\n\n*උදා:* .msg 94719845166,මොකද කරන්නෙ?"
         }, { quoted: msg });
+      }
+
+      const [rawNumber, ...contentParts] = fullText.split(",");
+      let targetNumber = rawNumber.replace(/[^0-9]/g, "");
+      if (targetNumber.startsWith("0")) targetNumber = "94" + targetNumber.slice(1);
+
+      const messageContent = contentParts.join(",").trim();
+
+      if (!messageContent) {
+        return await sock.sendMessage(from, { text: "⚠️ Message එකක් ලියන්න." }, { quoted: msg });
       }
 
       sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      const [rawNumber, ...msgParts] = fullText.split(",");
-      const targetText = msgParts.join(",").trim();
+      const targetJid = `${targetNumber}@s.whatsapp.net`;
 
-      let cleanNumber = rawNumber.replace(/[^0-9]/g, '');
-      if (cleanNumber.startsWith("0")) cleanNumber = "94" + cleanNumber.slice(1);
-
-      if (!targetText) {
-        return await sock.sendMessage(from, { text: "⚠️ Message එකක් ලියන්න." }, { quoted: msg });
-      }
-
-      const targetJid = `${cleanNumber}@s.whatsapp.net`;
-
-      // Direct Send
-      await sock.sendMessage(targetJid, { text: targetText });
+      // Safe Send
+      await sock.sendMessage(targetJid, { text: messageContent });
 
       await sock.sendMessage(from, {
-        text: `*⚡ DARK-DINU DELIVERED ⚡*\n\n🎯 *To:* +${cleanNumber}\n💬 *Message:* ${targetText}`
+        text: `*⚡ TRANSMISSION COMPLETE ⚡*\n\n🎯 *To:* +${targetNumber}\n💬 *Message:* ${messageContent}`
       }, { quoted: msg });
 
       sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
 
-    } catch (error) {
-      console.error("[MSG SYSTEM ERROR]:", error);
+    } catch (err) {
+      console.error("[MSG RUNTIME ERROR]:", err);
       sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
       await sock.sendMessage(from, {
-        text: `❌ යැවීමට නොහැකි විය: ${error.message}`
+        text: `❌ යැවීමට නොහැකි විය: ${err.message || "Unknown Network Error"}`
       }, { quoted: msg });
     }
   }
