@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
 
+// MongoDB Session Schema
 const sessionSchema = new mongoose.Schema({
     sessionId: { type: String, required: true },
     keyId: { type: String, required: true },
@@ -10,49 +11,48 @@ const sessionSchema = new mongoose.Schema({
 sessionSchema.index({ sessionId: 1, keyId: 1 }, { unique: true });
 const SessionModel = mongoose.models.Session || mongoose.model('Session', sessionSchema);
 
-// In-Memory Fast Cache for Zero Query Lag
-const memoryCache = new Map();
-
+/**
+ * MongoDB Multi-Device Auth Engine (Zero Data-Loss)
+ */
 async function useMongoAuthState(sessionId) {
-    const getCacheKey = (id) => `${sessionId}:${id}`;
-
+    // MongoDB එකට save කිරීම
     const writeData = async (data, id) => {
-        const cacheKey = getCacheKey(id);
-        memoryCache.set(cacheKey, data);
-
-        const serialized = JSON.stringify(data, BufferJSON.replacer);
-        await SessionModel.updateOne(
-            { sessionId, keyId: id },
-            { $set: { data: serialized } },
-            { upsert: true }
-        ).catch(() => {});
+        try {
+            const serialized = JSON.stringify(data, BufferJSON.replacer);
+            await SessionModel.updateOne(
+                { sessionId, keyId: id },
+                { $set: { data: serialized } },
+                { upsert: true }
+            );
+        } catch (err) {
+            console.error(`[AUTH WRITE ERR] Key: ${id}:`, err.message);
+        }
     };
 
+    // MongoDB එකෙන් read කිරීම
     const readData = async (id) => {
-        const cacheKey = getCacheKey(id);
-        if (memoryCache.has(cacheKey)) {
-            return memoryCache.get(cacheKey);
-        }
-
         try {
             const doc = await SessionModel.findOne({ sessionId, keyId: id }).lean();
             if (doc && doc.data) {
-                const parsed = JSON.parse(doc.data, BufferJSON.reviver);
-                memoryCache.set(cacheKey, parsed);
-                return parsed;
+                return JSON.parse(doc.data, BufferJSON.reviver);
             }
             return null;
-        } catch {
+        } catch (err) {
+            console.error(`[AUTH READ ERR] Key: ${id}:`, err.message);
             return null;
         }
     };
 
+    // Data remove කිරීම
     const removeData = async (id) => {
-        const cacheKey = getCacheKey(id);
-        memoryCache.delete(cacheKey);
-        await SessionModel.deleteOne({ sessionId, keyId: id }).catch(() => {});
+        try {
+            await SessionModel.deleteOne({ sessionId, keyId: id });
+        } catch (err) {
+            console.error(`[AUTH REMOVE ERR] Key: ${id}:`, err.message);
+        }
     };
 
+    // Creds load කිරීම හෝ අලුතින් init කිරීම
     const credsData = await readData('creds');
     const creds = credsData || initAuthCreds();
 
@@ -88,10 +88,11 @@ async function useMongoAuthState(sessionId) {
         },
         saveCreds: () => writeData(creds, 'creds'),
         clearSession: async () => {
-            for (const key of memoryCache.keys()) {
-                if (key.startsWith(`${sessionId}:`)) memoryCache.delete(key);
+            try {
+                await SessionModel.deleteMany({ sessionId });
+            } catch (err) {
+                console.error("[AUTH CLEAR ERR]:", err.message);
             }
-            await SessionModel.deleteMany({ sessionId }).catch(() => {});
         }
     };
 }
