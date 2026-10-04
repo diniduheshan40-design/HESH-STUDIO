@@ -1,12 +1,11 @@
+const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
 
 // Safe Config Fallback
 let config = {
   BOT_NAME: "DARK-DINU",
   OWNER_NAME: "DINIDU HESHAN",
   PREFIX: ".",
-  LOGO_URL: "https://files.catbox.moe/ubar7g.jpg",
   FOOTER: "> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*"
 };
 
@@ -19,20 +18,21 @@ try {
 global.menuTracker = global.menuTracker || new Map();
 let isMenuHooked = false;
 
-// Safe Image Buffer Fetcher
-async function getImageBuffer(url) {
+// Local Image Buffer Loader (Zero Network Lag / No ECONNREFUSED)
+function getLocalLogo() {
   try {
-    const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 });
-    return Buffer.from(res.data);
-  } catch (_) {
-    return null;
-  }
+    const localPath = path.join(process.cwd(), 'assets', 'logo.jpg');
+    if (fs.existsSync(localPath)) {
+      return fs.readFileSync(localPath);
+    }
+  } catch (_) {}
+  return null;
 }
 
 module.exports = {
   name: "menu",
   alias: ["help", "list", "panel"],
-  description: "All-in-One Interactive Category Menu",
+  description: "All-in-One Interactive Category Menu with Local Logo",
 
   async execute({ sock, msg, from, prefix, commands, activeBotsCount }) {
     try {
@@ -69,8 +69,7 @@ module.exports = {
 
 ${config.FOOTER}`;
 
-      // Logo Buffer එක download කරගැනීම (Timeout / Refusal වළක්වා ගැනීමට)
-      const imgBuffer = await getImageBuffer(config.LOGO_URL);
+      const imgBuffer = getLocalLogo();
 
       let sentMsg;
       if (imgBuffer) {
@@ -79,7 +78,6 @@ ${config.FOOTER}`;
           caption: mainText
         }, { quoted: msg });
       } else {
-        // Image එක Refuse වුවහොත් Text මඟින් Menu එක Deliver වේ
         sentMsg = await sock.sendMessage(from, {
           text: mainText
         }, { quoted: msg });
