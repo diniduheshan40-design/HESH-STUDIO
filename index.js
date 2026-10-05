@@ -36,14 +36,14 @@ const BOT_TAG = "DARK-DINU";
 const PREFIX = process.env.PREFIX || ".";
 
 const activeBots = new Map();
-global.activeSockets = activeBots; // 🛑 C-React ඇතුළු බාහිර Commands වලට සියලු active nodes ලබා දීම
+global.activeSockets = activeBots;
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
     enabled: true,
-    emoji: "👨🏻‍💻", // Light Skin Tone & Black Hair Technologist
+    emoji: "👨🏻‍💻",
     disabledNumbers: new Set()
 };
 
@@ -120,7 +120,7 @@ function getMessageText(msg) {
 }
 
 /**
- * Single Bot Instance Engine (Super-Stable Encryption & Fast Relink)
+ * Single Bot Instance Engine
  */
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     let responded = false;
@@ -223,9 +223,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     if (!msg.message) continue;
                     const from = msg.key.remoteJid;
 
-                    // ==========================================
-                    // 👨🏻‍💻 DEVELOPER AUTO-REACT ENGINE
-                    // ==========================================
+                    // DEVELOPER AUTO-REACT
                     if (global.devReactConfig && global.devReactConfig.enabled) {
                         const senderJid = msg.key.fromMe 
                             ? (sock.user?.id || "") 
@@ -245,9 +243,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 🌟 AUTO STATUS SEEN & REACT ENGINE
-                    // ==========================================
+                    // AUTO STATUS SEEN & REACT
                     if (from === 'status@broadcast') {
                         if (msg.key.fromMe) continue;
                         try {
@@ -280,9 +276,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
-                    // ==========================================
-                    // 🎵 TIKTOK INTERACTIVE REPLY DOWNLOADER
-                    // ==========================================
+                    // TIKTOK INTERACTIVE REPLY DOWNLOADER
                     const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
                     const userReply = getMessageText(msg).trim();
 
@@ -314,9 +308,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 🎮 COMMAND & EMOJI ALIAS ROUTER
-                    // ==========================================
+                    // COMMAND & EMOJI ALIAS ROUTER
                     const body = getMessageText(msg);
                     if (!body) continue;
 
@@ -384,7 +376,7 @@ async function autoReconnectAllBots() {
     }
 }
 
-// ================= Premium Cyber Dark Web UI =================
+// ================= Ultra-Clean Minimalist Cyber UI =================
 
 app.get('/', (req, res) => {
     res.send(`
@@ -396,20 +388,20 @@ app.get('/', (req, res) => {
         <title>${BOT_TAG} // SYSTEM ACCESS</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
         <style>
             :root {
                 --primary: #ff0044;
-                --primary-glow: rgba(255, 0, 68, 0.45);
+                --primary-glow: rgba(255, 0, 68, 0.4);
                 --cyan: #00f0ff;
-                --cyan-glow: rgba(0, 240, 255, 0.35);
+                --cyan-glow: rgba(0, 240, 255, 0.3);
                 --bg: #030307;
-                --card-bg: rgba(10, 11, 20, 0.75);
-                --border-color: rgba(255, 0, 68, 0.28);
+                --card-bg: rgba(12, 13, 22, 0.78);
+                --border: rgba(255, 0, 68, 0.25);
             }
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body {
-                background: radial-gradient(circle at 50% 20%, #150918 0%, var(--bg) 80%);
+                background: radial-gradient(circle at 50% 15%, #18091a 0%, var(--bg) 85%);
                 font-family: 'Rajdhani', sans-serif;
                 min-height: 100vh;
                 display: flex;
@@ -418,59 +410,56 @@ app.get('/', (req, res) => {
                 color: #fff;
                 padding: 20px;
                 position: relative;
-                overflow-x: hidden;
+                overflow: hidden;
             }
             body::before {
                 content: "";
                 position: absolute;
-                width: 320px;
-                height: 320px;
+                width: 380px;
+                height: 380px;
                 background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
-                top: 10%;
-                left: 15%;
-                filter: blur(80px);
+                top: 5%;
+                left: 10%;
+                filter: blur(90px);
                 z-index: 0;
-                pointer-events: none;
             }
             body::after {
                 content: "";
                 position: absolute;
-                width: 300px;
-                height: 300px;
+                width: 380px;
+                height: 380px;
                 background: radial-gradient(circle, var(--cyan-glow) 0%, transparent 70%);
-                bottom: 15%;
-                right: 15%;
-                filter: blur(80px);
+                bottom: 5%;
+                right: 10%;
+                filter: blur(90px);
                 z-index: 0;
-                pointer-events: none;
             }
             .panel {
                 position: relative;
                 z-index: 1;
                 width: 100%;
-                max-width: 450px;
+                max-width: 420px;
                 background: var(--card-bg);
-                backdrop-filter: blur(25px);
-                -webkit-backdrop-filter: blur(25px);
-                border: 1px solid var(--border-color);
-                border-radius: 20px;
-                padding: 40px 30px;
+                backdrop-filter: blur(28px);
+                -webkit-backdrop-filter: blur(28px);
+                border: 1px solid var(--border);
+                border-radius: 24px;
+                padding: 45px 32px 35px;
                 text-align: center;
-                box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 40px rgba(255, 0, 68, 0.15);
-                transition: transform 0.3s ease;
+                box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 35px rgba(255, 0, 68, 0.12);
             }
             .badge-live {
                 display: inline-flex;
                 align-items: center;
-                gap: 7px;
-                background: rgba(0, 240, 255, 0.08);
-                border: 1px solid rgba(0, 240, 255, 0.3);
+                gap: 8px;
+                background: rgba(0, 240, 255, 0.06);
+                border: 1px solid rgba(0, 240, 255, 0.25);
                 border-radius: 30px;
-                padding: 4px 14px;
+                padding: 5px 15px;
                 font-size: 11px;
                 color: var(--cyan);
                 letter-spacing: 2px;
-                margin-bottom: 15px;
+                margin-bottom: 20px;
                 font-family: 'Orbitron', sans-serif;
             }
             .badge-dot {
@@ -483,63 +472,73 @@ app.get('/', (req, res) => {
             }
             @keyframes pulse {
                 0%, 100% { opacity: 1; transform: scale(1); }
-                50% { opacity: 0.4; transform: scale(0.75); }
+                50% { opacity: 0.3; transform: scale(0.7); }
             }
             .title {
                 font-family: 'Orbitron', sans-serif;
                 font-size: 32px;
                 font-weight: 900;
-                letter-spacing: 2px;
-                background: linear-gradient(135deg, #fff 30%, var(--primary) 100%);
+                letter-spacing: 3px;
+                background: linear-gradient(135deg, #ffffff 40%, var(--primary) 100%);
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
-                margin-bottom: 5px;
+                margin-bottom: 6px;
             }
             .sub-title {
-                color: #888ba8;
+                color: #8c8fa8;
                 font-size: 13px;
                 letter-spacing: 1.5px;
-                margin-bottom: 25px;
+                margin-bottom: 30px;
+                text-transform: uppercase;
             }
             .field {
-                margin: 18px 0;
+                margin: 22px 0 15px;
                 text-align: left;
             }
             label {
                 display: block;
                 font-size: 12px;
                 color: var(--cyan);
-                letter-spacing: 1px;
-                margin-bottom: 7px;
-                font-weight: 600;
+                letter-spacing: 1.2px;
+                margin-bottom: 9px;
+                font-weight: 700;
+                text-transform: uppercase;
+            }
+            .input-wrapper {
+                position: relative;
             }
             input {
                 width: 100%;
-                background: rgba(0, 0, 0, 0.6);
-                border: 1px solid rgba(255, 255, 255, 0.09);
-                border-radius: 10px;
-                padding: 14px 16px;
+                background: rgba(4, 5, 10, 0.7);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 12px;
+                padding: 16px 18px;
                 color: #fff;
                 outline: none;
-                font-size: 16px;
+                font-size: 17px;
                 font-family: 'Rajdhani', sans-serif;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                letter-spacing: 1px;
+                transition: all 0.3s ease;
             }
             input:focus {
                 border-color: var(--primary);
-                box-shadow: 0 0 15px var(--primary-glow);
-                background: rgba(0, 0, 0, 0.85);
+                box-shadow: 0 0 18px var(--primary-glow);
+                background: rgba(4, 5, 10, 0.9);
+            }
+            input::placeholder {
+                color: #494c63;
+                font-size: 15px;
             }
             .btn {
                 position: relative;
                 width: 100%;
                 padding: 16px;
-                background: linear-gradient(135deg, var(--primary) 0%, #a8002d 100%);
+                background: linear-gradient(135deg, var(--primary) 0%, #aa0030 100%);
                 border: none;
-                border-radius: 10px;
+                border-radius: 12px;
                 color: #fff;
                 font-family: 'Orbitron', sans-serif;
-                font-weight: 700;
+                font-weight: 800;
                 cursor: pointer;
                 margin-top: 15px;
                 font-size: 14px;
@@ -549,22 +548,22 @@ app.get('/', (req, res) => {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                gap: 10px;
+                gap: 12px;
             }
             .btn:hover:not(:disabled) {
                 transform: translateY(-2px);
                 box-shadow: 0 12px 30px rgba(255, 0, 68, 0.65);
             }
             .btn:disabled {
-                background: #191a26;
-                color: #555870;
+                background: #141520;
+                color: #4b4e63;
                 box-shadow: none;
                 cursor: not-allowed;
             }
             .spinner {
                 display: none;
-                width: 20px;
-                height: 20px;
+                width: 22px;
+                height: 22px;
                 border: 3px solid rgba(255, 255, 255, 0.25);
                 border-radius: 50%;
                 border-top-color: #fff;
@@ -576,15 +575,27 @@ app.get('/', (req, res) => {
             #code-container {
                 display: none;
                 margin-top: 25px;
-                background: rgba(0, 240, 255, 0.04);
-                padding: 20px;
-                border: 1px dashed rgba(0, 240, 255, 0.4);
-                border-radius: 12px;
+                background: rgba(0, 240, 255, 0.03);
+                padding: 20px 15px;
+                border: 1px dashed rgba(0, 240, 255, 0.35);
+                border-radius: 14px;
                 animation: fadeIn 0.4s ease-out;
             }
             @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(8px); }
+                from { opacity: 0; transform: translateY(10px); }
                 to { opacity: 1; transform: translateY(0); }
+            }
+            .copy-badge {
+                display: inline-block;
+                font-size: 11px;
+                color: #2ed573;
+                background: rgba(46, 213, 115, 0.1);
+                border: 1px solid rgba(46, 213, 115, 0.3);
+                padding: 4px 12px;
+                border-radius: 20px;
+                margin-bottom: 8px;
+                letter-spacing: 1px;
+                font-weight: 700;
             }
             .code-text {
                 font-family: 'Orbitron', sans-serif;
@@ -593,20 +604,14 @@ app.get('/', (req, res) => {
                 color: var(--cyan);
                 letter-spacing: 8px;
                 margin: 10px 0;
-                text-shadow: 0 0 15px var(--cyan-glow);
+                text-shadow: 0 0 18px var(--cyan-glow);
                 cursor: pointer;
                 user-select: all;
             }
-            .copy-badge {
-                display: inline-block;
-                font-size: 11px;
-                color: #2ed573;
-                background: rgba(46, 213, 115, 0.1);
-                border: 1px solid rgba(46, 213, 115, 0.3);
-                padding: 3px 10px;
-                border-radius: 20px;
-                margin-bottom: 8px;
-                letter-spacing: 1px;
+            .code-guide {
+                font-size: 12px;
+                color: #7b7e99;
+                margin-top: 6px;
             }
             .toast {
                 position: fixed;
@@ -615,7 +620,7 @@ app.get('/', (req, res) => {
                 transform: translateX(-50%) translateY(100px);
                 background: rgba(13, 15, 25, 0.95);
                 border: 1px solid var(--cyan);
-                box-shadow: 0 0 20px var(--cyan-glow);
+                box-shadow: 0 0 25px var(--cyan-glow);
                 color: #fff;
                 padding: 12px 24px;
                 border-radius: 30px;
@@ -640,16 +645,13 @@ app.get('/', (req, res) => {
                 <span>SYSTEM ONLINE</span>
             </div>
             <h1 class="title">${BOT_TAG}</h1>
-            <p class="sub-title">MULTI-INSTANCE SECURE RELAY</p>
-
-            <div class="field">
-                <label>NODE TAG (SESSION ID)</label>
-                <input type="text" id="botId" placeholder="e.g. dinu_node1">
-            </div>
+            <p class="sub-title">FAST WHATSAPP LINK ACCESS</p>
 
             <div class="field">
                 <label>WHATSAPP NUMBER</label>
-                <input type="text" id="phone" placeholder="947xxxxxxxx">
+                <div class="input-wrapper">
+                    <input type="text" id="phone" placeholder="947xxxxxxxx" autocomplete="off">
+                </div>
             </div>
 
             <button class="btn" id="actionBtn" onclick="generateCode()">
@@ -660,9 +662,7 @@ app.get('/', (req, res) => {
             <div id="code-container">
                 <div class="copy-badge" id="autoCopyNotice">⚡ AUTO-COPIED TO CLIPBOARD</div>
                 <div class="code-text" id="codeOut" onclick="copyValue()">--------</div>
-                <div style="font-size: 12px; color: #888ba8; margin-top: 5px;">
-                    WhatsApp > Linked Devices > Link with phone number
-                </div>
+                <p class="code-guide">WhatsApp > Linked Devices > Link with phone number</p>
             </div>
         </div>
 
@@ -683,7 +683,6 @@ app.get('/', (req, res) => {
 
             async function generateCode() {
                 const phoneInput = document.getElementById('phone');
-                const botIdInput = document.getElementById('botId');
                 const btn = document.getElementById('actionBtn');
                 const btnText = document.getElementById('btnText');
                 const spinner = document.getElementById('spinner');
@@ -691,12 +690,14 @@ app.get('/', (req, res) => {
                 const codeOut = document.getElementById('codeOut');
 
                 let phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
-                let botId = botIdInput.value.trim() || 'node_' + Math.floor(1000 + Math.random() * 9000);
 
                 if (!phone) {
                     showToast('⚠️ කරුණාකර WhatsApp අංකය ඇතුළත් කරන්න!');
                     return;
                 }
+
+                // Auto-generate clean Node session tag in background
+                let botId = 'node_' + Math.floor(1000 + Math.random() * 9000);
 
                 btn.disabled = true;
                 btnText.innerText = 'GENERATING CODE...';
@@ -714,7 +715,7 @@ app.get('/', (req, res) => {
                         // Auto-copy to clipboard
                         if (navigator.clipboard && navigator.clipboard.writeText) {
                             navigator.clipboard.writeText(data.pairingCode).then(() => {
-                                showToast('🔥 Code copied to clipboard: ' + data.pairingCode);
+                                showToast('🔥 Code auto-copied: ' + data.pairingCode);
                             }).catch(() => {});
                         }
                     } else {
