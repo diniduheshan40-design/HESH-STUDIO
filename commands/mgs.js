@@ -3,23 +3,24 @@ module.exports = {
   alias: ["mgs", "send", "dm", "mgspro", "switchmsg"],
   description: "Direct message & Cross-bot relay controller",
 
-  async execute({ sock, msg, from, args, body, activeBots }) {
+  async execute({ sock, msg, from, args, body, activeBots, activeBotsMap }) {
     try {
-      // 1. Sender Identification
+      // 1. Sender Verification
       const senderJid = msg.key.fromMe 
         ? (sock.user?.id || "") 
         : (msg.key.participant || msg.participant || from || "");
 
-      const cleanSender = senderJid.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+      const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
 
       // Developer & Owner Whitelist
-      const devNumbers = ["94719845166"];
+      const devNumbers = ["94719845166", "15947733680169"];
       const isDeveloper = devNumbers.some(num => cleanSender.includes(num)) || senderJid.includes("15947733680169");
       const isOwner = msg.key.fromMe || isDeveloper;
 
-      // Command Type
-      const commandTrigger = body.slice(1).trim().split(/ +/)[0].toLowerCase();
-      const isPro = commandTrigger === "mgspro" || commandTrigger === "switchmsg";
+      // Command Trigger Check
+      const fullBody = body.trim();
+      const firstWord = fullBody.startsWith(".") ? fullBody.slice(1).trim().split(/ +/)[0].toLowerCase() : fullBody.split(/ +/)[0].toLowerCase();
+      const isPro = firstWord === "mgspro" || firstWord === "switchmsg";
 
       // -------------------------------------------------------------
       // OPTION A: .mgspro (Cross-Node Relay)
@@ -55,16 +56,27 @@ module.exports = {
 
         sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
 
-        // Match Bot Instance
+        // Active Bots Pool එක ලබා ගැනීම (Map හෝ Array දෙකෙන්ම)
+        const botPool = activeBotsMap || global.activeSockets || activeBots;
         let relaySock = null;
         let matchedNode = null;
 
-        if (activeBots) {
-          for (const [nodeId, bot] of activeBots.entries()) {
-            const botPhone = (bot?.user?.id || "").split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
-            if (botPhone === senderNum || nodeId.includes(senderNum)) {
-              relaySock = bot;
+        if (botPool instanceof Map) {
+          for (const [nodeId, bSock] of botPool.entries()) {
+            const bPhone = (bSock?.user?.id || "").split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+            if (bPhone === senderNum || String(nodeId).includes(senderNum)) {
+              relaySock = bSock;
               matchedNode = nodeId;
+              break;
+            }
+          }
+        } else if (Array.isArray(botPool)) {
+          for (let i = 0; i < botPool.length; i++) {
+            const bSock = botPool[i];
+            const bPhone = (bSock?.user?.id || "").split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+            if (bPhone === senderNum) {
+              relaySock = bSock;
+              matchedNode = `Node_${i + 1}`;
               break;
             }
           }
@@ -73,7 +85,7 @@ module.exports = {
         if (!relaySock) {
           sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
           return await sock.sendMessage(from, {
-            text: `*❌ Node Offline!*\n+${senderNum} අංකයට අදාළ Bot active නැත.`
+            text: `*❌ Node Offline!*\n+${senderNum} අංකයට අදාළ Bot active නැත. (.bots ගසා Active bots පරීක්ෂා කරන්න)`
           }, { quoted: msg });
         }
 
@@ -81,7 +93,7 @@ module.exports = {
         await relaySock.sendMessage(targetJid, { text: textToSend });
 
         await sock.sendMessage(from, {
-          text: `*🚀 RELAY SUCCESS*\n\n🤖 *Node:* +${senderNum} [${matchedNode}]\n🎯 *To:* +${targetNum}\n💬 *Message:* ${textToSend}`
+          text: `*🚀 RELAY SUCCESS*\n\n🤖 *Relay Node:* +${senderNum} [${matchedNode}]\n🎯 *To:* +${targetNum}\n💬 *Message:* ${textToSend}`
         }, { quoted: msg });
 
         return sock.sendMessage(from, { react: { text: "🖤", key: msg.key } }).catch(() => {});
@@ -117,8 +129,6 @@ module.exports = {
       sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
       const targetJid = `${targetNumber}@s.whatsapp.net`;
-
-      // Safe Send
       await sock.sendMessage(targetJid, { text: messageContent });
 
       await sock.sendMessage(from, {
