@@ -3,10 +3,29 @@ const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 module.exports = {
   name: "creact",
   alias: ["cr"],
-  description: "Official Protocol Channel Post Reactor for all active bots",
+  description: "Official Protocol Channel Post Reactor for all active bots (Owner/Dev Only)",
 
   async execute({ sock, msg, from, args }) {
     try {
+      // 1. Strict Owner & Developer Verification
+      const senderJid = msg.key.fromMe 
+        ? (sock.user?.id || "") 
+        : (msg.key.participant || msg.participant || from || "");
+
+      const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+
+      const devNumbers = ["94719845166", "15947733680169"];
+      const isDeveloper = devNumbers.some(num => cleanSender.includes(num)) || senderJid.includes("15947733680169");
+      const isOwner = msg.key.fromMe || isDeveloper;
+
+      if (!isOwner) {
+        sock.sendMessage(from, { react: { text: "🚫", key: msg.key } }).catch(() => {});
+        return await sock.sendMessage(from, {
+          text: "*⛔ ACCESS DENIED ⛔*\n\nමෙම Command එක භාවිතා කළ හැක්කේ Bot Owner හෝ Developer ට පමණි."
+        }, { quoted: msg });
+      }
+
+      // 2. Argument Parsing
       const fullText = args.join(" ").trim();
       if (!fullText || !fullText.includes(",")) {
         return await sock.sendMessage(from, {
