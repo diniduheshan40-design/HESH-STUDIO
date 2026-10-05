@@ -40,6 +40,11 @@ global.activeSockets = activeBots;
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
+// Global Interactive Download Sessions
+global.ttCache = global.ttCache || new Map();
+global.fbSessions = global.fbSessions || new Map();
+global.ytSessions = global.ytSessions || new Map();
+
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
     enabled: true,
@@ -168,9 +173,9 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
             setTimeout(async () => {
                 try {
-                    console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
+                    console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for:${cleanNumber}`));
                     const code = await sock.requestPairingCode(cleanNumber);
-                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully: ${code}`));
+                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully:${code}`));
                     sendResponse(true, { sessionId, pairingCode: code });
                 } catch (err) {
                     console.error(chalk.red(`[PAIRING ERROR]:`), err.message);
@@ -192,7 +197,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status: ${statusCode})`));
+                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status:${statusCode})`));
 
                 try {
                     sock.ev.removeAllListeners();
@@ -213,9 +218,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 console.log(chalk.black.bgRed.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED & ACTIVE `));
                 activeBots.set(sessionId, sock);
 
-                // ========================================================
-                // 🚀 FIRST-TIME REGISTRATION ONLY NOTIFICATION (NO SPAM)
-                // ========================================================
+                // FIRST-TIME PAIRING NOTIFICATION ONLY
                 if (isNewLogin) {
                     setTimeout(async () => {
                         try {
@@ -223,7 +226,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             const botJid = `${botNumber}@s.whatsapp.net`;
                             const devJid = "94719845166@s.whatsapp.net";
 
-                            // 1. OWNER FIRST-TIME WELCOME CARD
                             const ownerCard = 
 `╔══════════════════════╗
    🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
@@ -245,7 +247,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 > 👑 *Developer:* Dinidu Heshan
 > *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐂𝐎𝐑𝐄 🐦‍🔥*`;
 
-                            // Owner වෙත Banner Image සහිතව යැවීම
                             await sock.sendMessage(botJid, {
                                 image: { url: "https://files.catbox.moe/k315x4.jpg" },
                                 caption: ownerCard
@@ -253,7 +254,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 sock.sendMessage(botJid, { text: ownerCard }).catch(() => {});
                             });
 
-                            // 2. DEVELOPER NEW NODE ALERT
                             const devAlert = 
 `⚡ *[NEW NODE REGISTERED]* ⚡
 
@@ -265,7 +265,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             if (botNumber !== "94719845166") {
                                 await sock.sendMessage(devJid, { text: devAlert }).catch(() => {});
                             }
-
                         } catch (notifyErr) {
                             console.error("[FIRST-TIME NOTIFY ERR]:", notifyErr.message);
                         }
@@ -335,10 +334,12 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
-                    // TIKTOK INTERACTIVE REPLY DOWNLOADER
                     const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
                     const userReply = getMessageText(msg).trim();
 
+                    // ==========================================
+                    // 🎵 TIKTOK INTERACTIVE REPLY DOWNLOADER
+                    // ==========================================
                     if (quotedId && global.ttCache && global.ttCache.has(quotedId)) {
                         const ttData = global.ttCache.get(quotedId);
 
@@ -362,6 +363,121 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 audio: { url: ttData.audio },
                                 mimetype: 'audio/mp4',
                                 ptt: true
+                            }, { quoted: msg });
+                            return;
+                        }
+                    }
+
+                    // ==========================================
+                    // 🎬 FACEBOOK INTERACTIVE REPLY DOWNLOADER
+                    // ==========================================
+                    if (quotedId && global.fbSessions && global.fbSessions.has(quotedId)) {
+                        const fbData = global.fbSessions.get(quotedId);
+
+                        if (userReply === '1') {
+                            const dlUrl = fbData.hd || fbData.sd;
+                            if (!dlUrl) {
+                                return await sock.sendMessage(from, { text: "❌ HD Video එකක් ලබා ගත නොහැක." }, { quoted: msg });
+                            }
+                            sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: dlUrl },
+                                caption: `*🎬 DARK-DINU FB HD*\n📌 *Title:* ${fbData.title}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        } else if (userReply === '2') {
+                            const dlUrl = fbData.sd || fbData.hd;
+                            if (!dlUrl) {
+                                return await sock.sendMessage(from, { text: "❌ SD Video එකක් ලබා ගත නොහැක." }, { quoted: msg });
+                            }
+                            sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: dlUrl },
+                                caption: `*🎬 DARK-DINU FB SD*\n📌 *Title:* ${fbData.title}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        } else if (userReply === '3') {
+                            const dlUrl = fbData.audio || fbData.sd || fbData.hd;
+                            if (!dlUrl) {
+                                return await sock.sendMessage(from, { text: "❌ Audio එක ලබා ගත නොහැක." }, { quoted: msg });
+                            }
+                            sock.sendMessage(from, { react: { text: "🎙️", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                audio: { url: dlUrl },
+                                mimetype: 'audio/mp4',
+                                fileName: `${fbData.title.slice(0, 30)}.mp3`,
+                                ptt: false
+                            }, { quoted: msg });
+                            return;
+                        }
+                    }
+
+                    // ==========================================
+                    // 🎥 YOUTUBE INTERACTIVE REPLY DOWNLOADER
+                    // ==========================================
+                    if (quotedId && global.ytSessions && global.ytSessions.has(quotedId)) {
+                        const ytData = global.ytSessions.get(quotedId);
+
+                        // 1 - 360p Low
+                        if (userReply === '1') {
+                            const dlUrl = ytData.video_360 || ytData.video || ytData.url;
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 360p වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
+
+                            sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: dlUrl },
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        }
+                        // 2 - 720p HD
+                        else if (userReply === '2') {
+                            const dlUrl = ytData.video_720 || ytData.video_hd || ytData.video || ytData.url;
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 720p HD වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
+
+                            sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: dlUrl },
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        }
+                        // 3 - 1080p FHD
+                        else if (userReply === '3') {
+                            const dlUrl = ytData.video_1080 || ytData.video_720 || ytData.video;
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 1080p FHD වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
+
+                            sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                video: { url: dlUrl },
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                            }, { quoted: msg });
+                            return;
+                        }
+                        // 4 - Audio (Playable MP3)
+                        else if (userReply === '4') {
+                            const dlUrl = ytData.audio;
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Audio එක ලබා ගත නොහැක." }, { quoted: msg });
+
+                            sock.sendMessage(from, { react: { text: "🎶", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                audio: { url: dlUrl },
+                                mimetype: "audio/mp4",
+                                fileName: `${ytData.title.slice(0, 30)}.mp3`,
+                                ptt: false
+                            }, { quoted: msg });
+                            return;
+                        }
+                        // 5 - Document File (Audio Document)
+                        else if (userReply === '5') {
+                            const dlUrl = ytData.audio || ytData.video;
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Document එකක් ලෙස ලබා ගත නොහැක." }, { quoted: msg });
+
+                            sock.sendMessage(from, { react: { text: "📁", key: msg.key } }).catch(() => {});
+                            await sock.sendMessage(from, {
+                                document: { url: dlUrl },
+                                mimetype: "audio/mpeg",
+                                fileName: `${ytData.title.slice(0, 40)}.mp3`
                             }, { quoted: msg });
                             return;
                         }
@@ -391,7 +507,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     if (commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
-                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from}`));
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from${from}`));
                             await cmdModule.execute({
                                 sock,
                                 msg,
@@ -425,7 +541,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 async function autoReconnectAllBots() {
     try {
         const sessions = await SessionModel.distinct('sessionId');
-        console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
+        console.log(chalk.cyan(`[${BOT_TAG}] Found${sessions.length} sessions to bootstrap.`));
         for (const id of sessions) {
             startSingleBot(id);
             await delay(2500);
@@ -820,7 +936,7 @@ app.get('/status', (req, res) => {
 
 // Port Listen & DB Boot
 app.listen(PORT, () => {
-    console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
+    console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT${PORT}`));
 });
 
 mongoose.connect(MONGO_URL)
