@@ -40,11 +40,13 @@ global.activeSockets = activeBots;
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
-// Global Interactive Download Sessions
+// Global Interactive Download & Menu Sessions
 global.ttCache = global.ttCache || new Map();
 global.fbSessions = global.fbSessions || new Map();
 global.ytSessions = global.ytSessions || new Map();
 global.videoSessions = global.videoSessions || new Map();
+global.songSessions = global.songSessions || new Map();
+global.menuSessions = global.menuSessions || new Map();
 
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
@@ -158,7 +160,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
             markOnlineOnConnect: true,
-            // 🛑 හිස් මැසේජ් බබල් යැවීම වැළැක්වීමට undefined ලබාදීම
+            // 🛑 Empty Bubble Message වළක්වයි
             getMessage: async (key) => {
                 return undefined;
             },
@@ -218,7 +220,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 console.log(chalk.black.bgRed.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED & ACTIVE `));
                 activeBots.set(sessionId, sock);
 
-                // FIRST-TIME PAIRING NOTIFICATION ONLY
+                // FIRST-TIME LOGIN NOTIFICATION ONLY
                 if (isNewLogin) {
                     setTimeout(async () => {
                         try {
@@ -334,8 +336,98 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
-                    const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
+                    const quotedContext = msg.message?.extendedTextMessage?.contextInfo;
+                    const quotedId = quotedContext?.stanzaId;
                     const userReply = getMessageText(msg).trim();
+
+                    // ==========================================
+                    // 🎵 SONG INTERACTIVE REPLY HANDLER
+                    // ==========================================
+                    if (quotedId && global.songSessions && global.songSessions.has(quotedId)) {
+                        const songData = global.songSessions.get(quotedId);
+
+                        if (['1', '2', '3'].includes(userReply)) {
+                            sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+
+                            try {
+                                const axios = require("axios");
+                                const apiKey = "chama_api_ec9848130d1aea209f08fb85e0b4720f";
+                                const apiUrl = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(songData.url)}&quality=360p&format=mp3&api_key=${apiKey}`;
+
+                                const res = await axios.get(apiUrl, { timeout: 45000 });
+                                const dlData = res.data?.data || res.data;
+                                const dlUrl = dlData?.download_url || dlData?.audio || dlData?.url;
+
+                                if (!dlUrl) {
+                                    return await sock.sendMessage(from, { text: "❌ Audio Download Link එක සොයාගත නොහැකි විය." }, { quoted: msg });
+                                }
+
+                                if (userReply === '1') {
+                                    // Audio (MP3)
+                                    await sock.sendMessage(from, {
+                                        audio: { url: dlUrl },
+                                        mimetype: "audio/mp4",
+                                        fileName: `${songData.title.slice(0, 30)}.mp3`,
+                                        ptt: false
+                                    }, { quoted: msg });
+                                } else if (userReply === '2') {
+                                    // Document (File)
+                                    await sock.sendMessage(from, {
+                                        document: { url: dlUrl },
+                                        mimetype: "audio/mpeg",
+                                        fileName: `${songData.title.slice(0, 30)}.mp3`
+                                    }, { quoted: msg });
+                                } else if (userReply === '3') {
+                                    // Voice Note (PTT)
+                                    await sock.sendMessage(from, {
+                                        audio: { url: dlUrl },
+                                        mimetype: "audio/ogg; codecs=opus",
+                                        ptt: true
+                                    }, { quoted: msg });
+                                }
+
+                                sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
+                                return;
+
+                            } catch (e) {
+                                return await sock.sendMessage(from, { text: `❌ සින්දුව බාගත කිරීම අසාර්ථක විය: ${e.message}` }, { quoted: msg });
+                            }
+                        }
+                    }
+
+                    // ==========================================
+                    // 📜 MENU PANEL INTERACTIVE HANDLER
+                    // ==========================================
+                    if (quotedId && global.menuSessions && global.menuSessions.has(quotedId)) {
+                        const menuActions = {
+                            "1": "general",
+                            "2": "media",
+                            "3": "stealth",
+                            "4": "owner",
+                            "5": "all"
+                        };
+
+                        if (menuActions[userReply]) {
+                            const selectedCategory = menuActions[userReply];
+                            const menuCmd = commands.get("menu");
+                            if (menuCmd && typeof menuCmd.execute === "function") {
+                                await menuCmd.execute({
+                                    sock,
+                                    msg,
+                                    from,
+                                    args: [selectedCategory],
+                                    body: `${PREFIX}menu ${selectedCategory}`,
+                                    prefix: PREFIX,
+                                    sessionId,
+                                    commands,
+                                    activeBots: Array.from(activeBots.values()),
+                                    activeBotsMap: activeBots,
+                                    activeBotsCount: activeBots.size
+                                });
+                                return;
+                            }
+                        }
+                    }
 
                     // ==========================================
                     // 🎵 TIKTOK INTERACTIVE REPLY DOWNLOADER
