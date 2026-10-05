@@ -44,6 +44,7 @@ const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 global.ttCache = global.ttCache || new Map();
 global.fbSessions = global.fbSessions || new Map();
 global.ytSessions = global.ytSessions || new Map();
+global.videoSessions = global.videoSessions || new Map();
 
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
@@ -157,10 +158,9 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
             markOnlineOnConnect: true,
+            // 🛑 හිස් මැසේජ් බබල් යැවීම වැළැක්වීමට undefined ලබාදීම
             getMessage: async (key) => {
-                return {
-                    conversation: ''
-                };
+                return undefined;
             },
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 60000,
@@ -173,9 +173,9 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
             setTimeout(async () => {
                 try {
-                    console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for:${cleanNumber}`));
+                    console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
                     const code = await sock.requestPairingCode(cleanNumber);
-                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully:${code}`));
+                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully: ${code}`));
                     sendResponse(true, { sessionId, pairingCode: code });
                 } catch (err) {
                     console.error(chalk.red(`[PAIRING ERROR]:`), err.message);
@@ -197,7 +197,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status:${statusCode})`));
+                console.log(chalk.red(`[${BOT_TAG}] [${sessionId}] Closed (Status: ${statusCode})`));
 
                 try {
                     sock.ev.removeAllListeners();
@@ -418,7 +418,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     if (quotedId && global.ytSessions && global.ytSessions.has(quotedId)) {
                         const ytData = global.ytSessions.get(quotedId);
 
-                        // 1 - 360p Low
                         if (userReply === '1') {
                             const dlUrl = ytData.video_360 || ytData.video || ytData.url;
                             if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 360p වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
@@ -429,9 +428,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
-                        }
-                        // 2 - 720p HD
-                        else if (userReply === '2') {
+                        } else if (userReply === '2') {
                             const dlUrl = ytData.video_720 || ytData.video_hd || ytData.video || ytData.url;
                             if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 720p HD වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
 
@@ -441,9 +438,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
-                        }
-                        // 3 - 1080p FHD
-                        else if (userReply === '3') {
+                        } else if (userReply === '3') {
                             const dlUrl = ytData.video_1080 || ytData.video_720 || ytData.video;
                             if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 1080p FHD වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
 
@@ -453,9 +448,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
-                        }
-                        // 4 - Audio (Playable MP3)
-                        else if (userReply === '4') {
+                        } else if (userReply === '4') {
                             const dlUrl = ytData.audio;
                             if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Audio එක ලබා ගත නොහැක." }, { quoted: msg });
 
@@ -467,9 +460,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 ptt: false
                             }, { quoted: msg });
                             return;
-                        }
-                        // 5 - Document File (Audio Document)
-                        else if (userReply === '5') {
+                        } else if (userReply === '5') {
                             const dlUrl = ytData.audio || ytData.video;
                             if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Document එකක් ලෙස ලබා ගත නොහැක." }, { quoted: msg });
 
@@ -480,6 +471,53 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 fileName: `${ytData.title.slice(0, 40)}.mp3`
                             }, { quoted: msg });
                             return;
+                        }
+                    }
+
+                    // ==========================================
+                    // 🎬 YOUTUBE VIDEO QUALITY SESSIONS HANDLER
+                    // ==========================================
+                    if (quotedId && global.videoSessions && global.videoSessions.has(quotedId)) {
+                        const vSession = global.videoSessions.get(quotedId);
+                        const qualityMap = {
+                            "1": "1080p",
+                            "2": "720p",
+                            "3": "480p",
+                            "4": "360p"
+                        };
+
+                        if (qualityMap[userReply]) {
+                            const selectedQuality = qualityMap[userReply];
+                            sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+
+                            try {
+                                const axios = require("axios");
+                                const dlApi = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(vSession.url)}&quality=${selectedQuality}&format=mp4&api_key=${vSession.apiKey || "chama_api_ec9848130d1aea209f08fb85e0b4720f"}`;
+                                
+                                const fetchRes = await axios.get(dlApi, { timeout: 45000 });
+                                const dlData = fetchRes.data?.data || fetchRes.data;
+                                const downloadUrl = dlData?.download_url || dlData?.url || dlData?.video;
+
+                                if (!downloadUrl) {
+                                    return await sock.sendMessage(from, { 
+                                        text: `❌ ${selectedQuality} සඳහා Download Link එකක් ලබාගත නොහැකි විය.` 
+                                    }, { quoted: msg });
+                                }
+
+                                await sock.sendMessage(from, {
+                                    video: { url: downloadUrl },
+                                    caption: `*🎬 DARK-DINU YOUTUBE VIDEO*\n📌 *Title:* ${vSession.title}\n📐 *Quality:* ${selectedQuality}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
+                                }, { quoted: msg });
+
+                                sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
+                                return;
+
+                            } catch (dlErr) {
+                                console.error("[YT QUALITY DL ERR]:", dlErr.message);
+                                return await sock.sendMessage(from, { 
+                                    text: `❌ Download කිරීම අසාර්ථක විය: ${dlErr.message}` 
+                                }, { quoted: msg });
+                            }
                         }
                     }
 
@@ -507,7 +545,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     if (commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
-                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from${from}`));
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from}`));
                             await cmdModule.execute({
                                 sock,
                                 msg,
@@ -541,7 +579,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 async function autoReconnectAllBots() {
     try {
         const sessions = await SessionModel.distinct('sessionId');
-        console.log(chalk.cyan(`[${BOT_TAG}] Found${sessions.length} sessions to bootstrap.`));
+        console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
         for (const id of sessions) {
             startSingleBot(id);
             await delay(2500);
@@ -936,7 +974,7 @@ app.get('/status', (req, res) => {
 
 // Port Listen & DB Boot
 app.listen(PORT, () => {
-    console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT${PORT}`));
+    console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
 });
 
 mongoose.connect(MONGO_URL)
