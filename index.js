@@ -292,11 +292,27 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
+                    // ==========================================
+                    // 🎮 COMMAND & EMOJI ALIAS ROUTER
+                    // ==========================================
                     const body = getMessageText(msg);
-                    if (!body || !body.startsWith(PREFIX)) continue;
+                    if (!body) continue;
 
-                    const [cmdName, ...args] = body.slice(PREFIX.length).trim().split(/ +/);
-                    const command = cmdName.toLowerCase();
+                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
+
+                    let command = '';
+                    let args = [];
+
+                    if (body.startsWith(PREFIX)) {
+                        const [cmdName, ...restArgs] = body.slice(PREFIX.length).trim().split(/ +/);
+                        command = cmdName.toLowerCase();
+                        args = restArgs;
+                    } else if (emojiAliases.includes(body.trim())) {
+                        command = body.trim();
+                        args = [];
+                    } else {
+                        continue;
+                    }
 
                     if (commands.has(command)) {
                         try {
