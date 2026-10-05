@@ -2,30 +2,28 @@ const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
 module.exports = {
   name: "setdp",
-  alias: ["setpfp", "updatepfp"],
+  alias: ["setdppro", "setpfp", "setpfppro"],
   category: "owner",
-  description: "Update bot profile picture by replying to an image",
+  description: "Update Profile Picture for Current Bot (Owner) or Any Linked Node (Developer Only)",
 
-  async execute({ sock, msg, from, prefix }) {
+  async execute({ sock, msg, from, args, body, prefix, activeBotsMap }) {
     try {
-      // 1. Owner & Developer Verification
+      // 1. අදාළ විධානය කුමක්දැයි හඳුනා ගැනීම (setdp ද setdppro ද යන්න)
+      const isProCommand = body.toLowerCase().startsWith(`${prefix}setdppro`) || 
+                           body.toLowerCase().startsWith(`${prefix}setpfppro`);
+
+      // 2. Sender සහ Bot තොරතුරු ලබා ගැනීම
       const senderJid = msg.key.fromMe 
         ? (sock.user?.id || "") 
         : (msg.key.participant || msg.participant || from || "");
 
       const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
-      const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+      const currentBotNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
       
-      const allowedNumbers = ["94719845166", "15947733680169", botNumber];
-      const isOwner = msg.key.fromMe || allowedNumbers.includes(cleanSender);
+      const isDeveloper = cleanSender === "94719845166" || cleanSender === "15947733680169";
+      const isCurrentOwner = msg.key.fromMe || cleanSender === currentBotNumber || isDeveloper;
 
-      if (!isOwner) {
-        return await sock.sendMessage(from, { 
-          text: "⚠️ *ACCESS DENIED*\n\nThis command is restricted to the Bot Developer and Owner only." 
-        }, { quoted: msg });
-      }
-
-      // 2. Identify Target Image Message
+      // 3. Image Message එක අල්ලා ගැනීම
       const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
       let targetPayload = null;
 
@@ -41,30 +39,104 @@ module.exports = {
 
       if (!targetPayload) {
         return await sock.sendMessage(from, { 
-          text: `📸 *කරුණාකර Profile Picture එකට දැමීමට අවශ්‍ය Photo එකකට Reply කර \`${prefix || "."}setdp\` ලෙස යවන්න.*` 
+          text: `📸 *කරුණාකර Profile Picture එකට දැමීමට අවශ්‍ය Photo එකකට Reply කර විධානය ලබා දෙන්න!*` 
+        }, { quoted: msg });
+      }
+
+      // ==========================================
+      // 👑 MODE 1: DEVELOPER MASTER (.setdppro)
+      // ==========================================
+      if (isProCommand) {
+        if (!isDeveloper) {
+          return await sock.sendMessage(from, { 
+            text: "⛔ *PERMISSION DENIED*\n\nThis master cluster control command is reserved strictly for Developer Dinidu Heshan." 
+          }, { quoted: msg });
+        }
+
+        const targetPhone = (args[0] || "").replace(/[^0-9]/g, "");
+        if (!targetPhone) {
+          return await sock.sendMessage(from, { 
+            text: `⚠️ *Usage Error:*\n\nPhoto එකකට Reply කර bot අංකය ලබා දෙන්න.\n*Format:* \`${prefix}setdppro 947xxxxxxxx\`` 
+          }, { quoted: msg });
+        }
+
+        sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+
+        // Cluster එකෙන් අදාළ Bot Socket එක සෙවීම
+        const botPool = activeBotsMap || global.activeSockets || new Map();
+        let targetBotSocket = null;
+        let foundSessionId = null;
+
+        for (const [sId, instanceSock] of botPool.entries()) {
+          const instanceNum = (instanceSock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+          if (instanceNum === targetPhone || sId.includes(targetPhone)) {
+            targetBotSocket = instanceSock;
+            foundSessionId = sId;
+            break;
+          }
+        }
+
+        if (!targetBotSocket) {
+          sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
+          return await sock.sendMessage(from, { 
+            text: `❌ *Target Node Offline:*\n\nCluster එක තුළ +${targetPhone} අංකයට අදාළ active bot node එකක් සොයාගත නොහැකි විය.` 
+          }, { quoted: msg });
+        }
+
+        // Image Buffer එක බාගත කිරීම
+        const buffer = await downloadMediaMessage(
+          targetPayload,
+          "buffer",
+          {},
+          { reuploadRequest: sock.updateMediaMessage }
+        );
+
+        if (!buffer || buffer.length === 0) throw new Error("Failed to process image buffer.");
+
+        // Target Bot හරහා Profile Picture එක Update කිරීම
+        const targetJid = `${targetPhone}@s.whatsapp.net`;
+        await targetBotSocket.updateProfilePicture(targetJid, buffer);
+
+        const devSuccessCard = 
+`╔══════════════════════╗
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
+╚══════════════════════╝
+
+┌─〔 👑 *DEVELOPER REMOTE ACTION* 〕
+├─▸ 🎯 *Target Node* : +${targetPhone}
+├─▸ 🏷️ *Session ID*  : ${foundSessionId}
+├─▸ ⚡ *Cluster Rel* : Successfully Updated
+├─▸ 🛡️ *Executed By* : Master Developer
+└───────────────────────
+
+> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐂𝐋𝐔𝐒𝐓𝐄𝐑 🐦‍🔥*`;
+
+        await sock.sendMessage(from, { text: devSuccessCard }, { quoted: msg });
+        return sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
+      }
+
+      // ==========================================
+      // 🤖 MODE 2: BOT OWNER ONLY (.setdp)
+      // ==========================================
+      if (!isCurrentOwner) {
+        return await sock.sendMessage(from, { 
+          text: "⚠️ *ACCESS DENIED*\n\nThis command can only be used by this Bot's Owner." 
         }, { quoted: msg });
       }
 
       sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      // 3. Download Image Media Buffer
       const buffer = await downloadMediaMessage(
         targetPayload,
         "buffer",
         {},
-        {
-          logger: undefined,
-          reuploadRequest: sock.updateMediaMessage
-        }
+        { reuploadRequest: sock.updateMediaMessage }
       );
 
-      if (!buffer || buffer.length === 0) {
-        throw new Error("Failed to download image buffer.");
-      }
+      if (!buffer || buffer.length === 0) throw new Error("Failed to download image buffer.");
 
-      // 4. Update WhatsApp Profile Picture
-      const botJid = `${botNumber}@s.whatsapp.net`;
-      await sock.updateProfilePicture(botJid, buffer);
+      const currentBotJid = `${currentBotNumber}@s.whatsapp.net`;
+      await sock.updateProfilePicture(currentBotJid, buffer);
 
       const successCard = 
 `╔══════════════════════╗
@@ -72,27 +144,20 @@ module.exports = {
 ╚══════════════════════╝
 
 ┌─〔 🖼️ *PROFILE UPDATED* 〕
-├─▸ 👤 *Updated By:* @${cleanSender}
-├─▸ 🤖 *Target Node:* +${botNumber}
-├─▸ ⚡ *Status:* DP Applied Successfully
+├─▸ 🤖 *Target Bot* : +${currentBotNumber}
+├─▸ 👤 *Action By*  : Owner
+├─▸ ⚡ *Status*     : DP Applied Successfully
 └───────────────────────
 
-> 👑 *Developer:* Dinidu Heshan
 > *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐂𝐎𝐑𝐄 🐦‍🔥*`;
 
-      await sock.sendMessage(from, {
-        text: successCard,
-        mentions: [senderJid]
-      }, { quoted: msg });
-
+      await sock.sendMessage(from, { text: successCard }, { quoted: msg });
       sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
 
     } catch (err) {
-      console.error("[SETDP ERROR]:", err.message);
+      console.error("[SETDP COMBO ERROR]:", err.message);
       sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
-      await sock.sendMessage(from, { 
-        text: `❌ *DP UPDATE FAILED:* ${err.message || "An unexpected error occurred."}` 
-      }, { quoted: msg });
+      await sock.sendMessage(from, { text: `❌ *DP Update Failed:* ${err.message}` }, { quoted: msg });
     }
   }
 };
