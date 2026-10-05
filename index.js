@@ -281,19 +281,33 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                 for (const msg of chatUpdate.messages) {
                     if (!msg.message) continue;
+
+                    // 🛑 Ghost Ping & Loop Fix: Protocol, Reaction සහ Edited messages වලට නැවත trigger නොවීම[span_1](start_span)[span_1](end_span)
+                    if (
+                        msg.message?.protocolMessage || 
+                        msg.message?.editedMessage ||
+                        msg.message?.reactionMessage
+                    ) {
+                        continue;
+                    }
+
                     const from = msg.key.remoteJid;
+                    const isFromMe = Boolean(msg.key.fromMe);
 
-                    // DEVELOPER AUTO-REACT
+                    // Bot අංකය සහ සැබෑ Sender අංකය extract කරගැනීම (Owner Fix)
+                    const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+                    const senderJid = isFromMe 
+                        ? `${botNumber}@s.whatsapp.net` 
+                        : (msg.key.participant || msg.participant || from || "");
+
+                    const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+
+                    // DEVELOPER AUTO-REACT (තමන්ගේම messages වලට react කර loop වීම වළක්වා ඇත)
                     if (global.devReactConfig && global.devReactConfig.enabled) {
-                        const senderJid = msg.key.fromMe 
-                            ? (sock.user?.id || "") 
-                            : (msg.key.participant || msg.participant || from || "");
-
-                        const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
                         const devNumbers = ["94719845166", "15947733680169"];
-                        const isTargetDev = devNumbers.some(n => cleanSender.includes(n)) || senderJid.includes("15947733680169");
+                        const isTargetDev = devNumbers.some(n => cleanSender.includes(n));
 
-                        if (isTargetDev && !global.devReactConfig.disabledNumbers.has(cleanSender)) {
+                        if (isTargetDev && !isFromMe && !global.devReactConfig.disabledNumbers.has(cleanSender)) {
                             sock.sendMessage(from, {
                                 react: {
                                     text: global.devReactConfig.emoji,
@@ -305,7 +319,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                     // AUTO STATUS SEEN & REACT
                     if (from === 'status@broadcast') {
-                        if (msg.key.fromMe) continue;
+                        if (isFromMe) continue;
                         try {
                             await sock.readMessages([msg.key]);
                             const sender = msg.key.participant || msg.participant;
@@ -613,10 +627,9 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // COMMAND & EMOJI ALIAS ROUTER
-                    const body = getMessageText(msg);
-                    if (!body) continue;
-
+                    // ==========================================
+                    // ⚙️ COMMAND & EMOJI ALIAS ROUTER
+                    // ==========================================
                     const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
                     const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
 
@@ -637,7 +650,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     if (commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
-                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from}`));
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | By: ${cleanSender}`));
                             await cmdModule.execute({
                                 sock,
                                 msg,
