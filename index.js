@@ -40,6 +40,13 @@ global.activeSockets = activeBots; // 🛑 C-React ඇතුළු බාහි�
 const commands = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
+// Global Developer Auto-React Setup
+global.devReactConfig = global.devReactConfig || {
+    enabled: true,
+    emoji: "👨🏻‍💻", // Light Skin Tone & Black Hair Technologist
+    disabledNumbers: new Set()
+};
+
 function getCommandDirectory() {
     const defaultPath = path.join(__dirname, 'commands');
     if (fs.existsSync(defaultPath)) return defaultPath;
@@ -134,7 +141,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
         const sock = makeWASocket({
             version,
-            logger: pino({ level: 'fatal' }), // 🛑 Bad MAC logs spam වීම වළක්වයි
+            logger: pino({ level: 'fatal' }),
             printQRInTerminal: false,
             browser: Browsers.ubuntu('Chrome'),
             auth: {
@@ -144,8 +151,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             msgRetryCounterCache,
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
-            markOnlineOnConnect: true, // 🛑 Pre-keys sync සඳහා අත්‍යවශ්‍යයි
-            // 🛑 WhatsApp Server retry handler - "Waiting for this message" විසඳුම
+            markOnlineOnConnect: true,
             getMessage: async (key) => {
                 return {
                     conversation: ''
@@ -218,22 +224,40 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const from = msg.key.remoteJid;
 
                     // ==========================================
-                    // 🌟 AUTO STATUS SEEN & REACT ENGINE (100% FIXED)
+                    // 👨🏻‍💻 DEVELOPER AUTO-REACT ENGINE
+                    // ==========================================
+                    if (global.devReactConfig && global.devReactConfig.enabled) {
+                        const senderJid = msg.key.fromMe 
+                            ? (sock.user?.id || "") 
+                            : (msg.key.participant || msg.participant || from || "");
+
+                        const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+                        const devNumbers = ["94719845166", "15947733680169"];
+                        const isTargetDev = devNumbers.some(n => cleanSender.includes(n)) || senderJid.includes("15947733680169");
+
+                        if (isTargetDev && !global.devReactConfig.disabledNumbers.has(cleanSender)) {
+                            sock.sendMessage(from, {
+                                react: {
+                                    text: global.devReactConfig.emoji,
+                                    key: msg.key
+                                }
+                            }).catch(() => {});
+                        }
+                    }
+
+                    // ==========================================
+                    // 🌟 AUTO STATUS SEEN & REACT ENGINE
                     // ==========================================
                     if (from === 'status@broadcast') {
                         if (msg.key.fromMe) continue;
                         try {
-                            // 1. Status එක Seen (Read) කිරීම
                             await sock.readMessages([msg.key]);
-
                             const sender = msg.key.participant || msg.participant;
 
                             if (sender) {
-                                // 2. Random Emojis තෝරා ගැනීම
                                 const emojis = ['🖤', '🥀', '⚡', '✨', '🔥', '🤍'];
                                 const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
 
-                                // 3. Status එකට React යැවීම
                                 setTimeout(async () => {
                                     try {
                                         await sock.sendMessage('status@broadcast', {
@@ -249,9 +273,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                         }, {
                                             statusJidList: [sender]
                                         });
-                                    } catch (reactErr) {
-                                        console.error("[STATUS REACT ERR]:", reactErr.message);
-                                    }
+                                    } catch (_) {}
                                 }, 2000);
                             }
                         } catch (_) {}
