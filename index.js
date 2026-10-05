@@ -321,6 +321,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     if (!body) continue;
 
                     const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
+                    const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
 
                     let command = '';
                     let args = [];
@@ -329,7 +330,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         const [cmdName, ...restArgs] = body.slice(PREFIX.length).trim().split(/ +/);
                         command = cmdName.toLowerCase();
                         args = restArgs;
-                    } else if (emojiAliases.includes(body.trim())) {
+                    } else if (emojiAliases.includes(body.trim()) && hasQuoted) {
                         command = body.trim();
                         args = [];
                     } else {
@@ -383,7 +384,7 @@ async function autoReconnectAllBots() {
     }
 }
 
-// ================= Web Pair Code UI =================
+// ================= Premium Cyber Dark Web UI =================
 
 app.get('/', (req, res) => {
     res.send(`
@@ -392,81 +393,350 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>DARK-DINU // SYSTEM ACCESS</title>
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+        <title>${BOT_TAG} // SYSTEM ACCESS</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
         <style>
-            :root { --primary: #ff003c; --cyan: #00f0ff; --bg: #050508; --panel: rgba(13, 14, 23, 0.85); }
+            :root {
+                --primary: #ff0044;
+                --primary-glow: rgba(255, 0, 68, 0.45);
+                --cyan: #00f0ff;
+                --cyan-glow: rgba(0, 240, 255, 0.35);
+                --bg: #030307;
+                --card-bg: rgba(10, 11, 20, 0.75);
+                --border-color: rgba(255, 0, 68, 0.28);
+            }
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { background: var(--bg); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #fff; padding: 15px; }
-            .panel { width: 100%; max-width: 440px; background: var(--panel); border: 1px solid rgba(255, 0, 60, 0.25); border-radius: 12px; padding: 35px 25px; text-align: center; box-shadow: 0 0 30px rgba(255, 0, 60, 0.15); }
-            .title { font-family: 'Orbitron', sans-serif; font-size: 26px; color: #fff; margin-bottom: 5px; }
-            .field { margin: 15px 0; text-align: left; }
-            label { display: block; font-size: 12px; color: var(--cyan); margin-bottom: 5px; }
-            input { width: 100%; background: #000; border: 1px solid #222; border-radius: 6px; padding: 12px; color: #fff; outline: none; font-size: 15px; }
-            input:focus { border-color: var(--primary); }
-            .btn { width: 100%; padding: 14px; background: var(--primary); border: none; border-radius: 6px; color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 700; cursor: pointer; margin-top: 10px; font-size: 14px; letter-spacing: 1px; }
-            .btn:disabled { background: #333; cursor: not-allowed; }
-            #code-container { display: none; margin-top: 20px; background: #000; padding: 15px; border: 1px dashed var(--cyan); border-radius: 6px; }
-            .code-text { font-family: 'Orbitron', sans-serif; font-size: 30px; color: var(--cyan); cursor: pointer; letter-spacing: 6px; margin: 10px 0; user-select: all; }
+            body {
+                background: radial-gradient(circle at 50% 20%, #150918 0%, var(--bg) 80%);
+                font-family: 'Rajdhani', sans-serif;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #fff;
+                padding: 20px;
+                position: relative;
+                overflow-x: hidden;
+            }
+            body::before {
+                content: "";
+                position: absolute;
+                width: 320px;
+                height: 320px;
+                background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+                top: 10%;
+                left: 15%;
+                filter: blur(80px);
+                z-index: 0;
+                pointer-events: none;
+            }
+            body::after {
+                content: "";
+                position: absolute;
+                width: 300px;
+                height: 300px;
+                background: radial-gradient(circle, var(--cyan-glow) 0%, transparent 70%);
+                bottom: 15%;
+                right: 15%;
+                filter: blur(80px);
+                z-index: 0;
+                pointer-events: none;
+            }
+            .panel {
+                position: relative;
+                z-index: 1;
+                width: 100%;
+                max-width: 450px;
+                background: var(--card-bg);
+                backdrop-filter: blur(25px);
+                -webkit-backdrop-filter: blur(25px);
+                border: 1px solid var(--border-color);
+                border-radius: 20px;
+                padding: 40px 30px;
+                text-align: center;
+                box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 40px rgba(255, 0, 68, 0.15);
+                transition: transform 0.3s ease;
+            }
+            .badge-live {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                background: rgba(0, 240, 255, 0.08);
+                border: 1px solid rgba(0, 240, 255, 0.3);
+                border-radius: 30px;
+                padding: 4px 14px;
+                font-size: 11px;
+                color: var(--cyan);
+                letter-spacing: 2px;
+                margin-bottom: 15px;
+                font-family: 'Orbitron', sans-serif;
+            }
+            .badge-dot {
+                width: 7px;
+                height: 7px;
+                background: var(--cyan);
+                border-radius: 50%;
+                box-shadow: 0 0 10px var(--cyan);
+                animation: pulse 1.5s infinite;
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.4; transform: scale(0.75); }
+            }
+            .title {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 32px;
+                font-weight: 900;
+                letter-spacing: 2px;
+                background: linear-gradient(135deg, #fff 30%, var(--primary) 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                margin-bottom: 5px;
+            }
+            .sub-title {
+                color: #888ba8;
+                font-size: 13px;
+                letter-spacing: 1.5px;
+                margin-bottom: 25px;
+            }
+            .field {
+                margin: 18px 0;
+                text-align: left;
+            }
+            label {
+                display: block;
+                font-size: 12px;
+                color: var(--cyan);
+                letter-spacing: 1px;
+                margin-bottom: 7px;
+                font-weight: 600;
+            }
+            input {
+                width: 100%;
+                background: rgba(0, 0, 0, 0.6);
+                border: 1px solid rgba(255, 255, 255, 0.09);
+                border-radius: 10px;
+                padding: 14px 16px;
+                color: #fff;
+                outline: none;
+                font-size: 16px;
+                font-family: 'Rajdhani', sans-serif;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            input:focus {
+                border-color: var(--primary);
+                box-shadow: 0 0 15px var(--primary-glow);
+                background: rgba(0, 0, 0, 0.85);
+            }
+            .btn {
+                position: relative;
+                width: 100%;
+                padding: 16px;
+                background: linear-gradient(135deg, var(--primary) 0%, #a8002d 100%);
+                border: none;
+                border-radius: 10px;
+                color: #fff;
+                font-family: 'Orbitron', sans-serif;
+                font-weight: 700;
+                cursor: pointer;
+                margin-top: 15px;
+                font-size: 14px;
+                letter-spacing: 2px;
+                box-shadow: 0 8px 25px var(--primary-glow);
+                transition: all 0.3s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+            }
+            .btn:hover:not(:disabled) {
+                transform: translateY(-2px);
+                box-shadow: 0 12px 30px rgba(255, 0, 68, 0.65);
+            }
+            .btn:disabled {
+                background: #191a26;
+                color: #555870;
+                box-shadow: none;
+                cursor: not-allowed;
+            }
+            .spinner {
+                display: none;
+                width: 20px;
+                height: 20px;
+                border: 3px solid rgba(255, 255, 255, 0.25);
+                border-radius: 50%;
+                border-top-color: #fff;
+                animation: spin 0.8s linear infinite;
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            #code-container {
+                display: none;
+                margin-top: 25px;
+                background: rgba(0, 240, 255, 0.04);
+                padding: 20px;
+                border: 1px dashed rgba(0, 240, 255, 0.4);
+                border-radius: 12px;
+                animation: fadeIn 0.4s ease-out;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(8px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .code-text {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 32px;
+                font-weight: 900;
+                color: var(--cyan);
+                letter-spacing: 8px;
+                margin: 10px 0;
+                text-shadow: 0 0 15px var(--cyan-glow);
+                cursor: pointer;
+                user-select: all;
+            }
+            .copy-badge {
+                display: inline-block;
+                font-size: 11px;
+                color: #2ed573;
+                background: rgba(46, 213, 115, 0.1);
+                border: 1px solid rgba(46, 213, 115, 0.3);
+                padding: 3px 10px;
+                border-radius: 20px;
+                margin-bottom: 8px;
+                letter-spacing: 1px;
+            }
+            .toast {
+                position: fixed;
+                bottom: 25px;
+                left: 50%;
+                transform: translateX(-50%) translateY(100px);
+                background: rgba(13, 15, 25, 0.95);
+                border: 1px solid var(--cyan);
+                box-shadow: 0 0 20px var(--cyan-glow);
+                color: #fff;
+                padding: 12px 24px;
+                border-radius: 30px;
+                font-size: 13px;
+                letter-spacing: 1px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                z-index: 100;
+                pointer-events: none;
+            }
+            .toast.show {
+                transform: translateX(-50%) translateY(0);
+            }
         </style>
     </head>
     <body>
         <div class="panel">
+            <div class="badge-live">
+                <span class="badge-dot"></span>
+                <span>SYSTEM ONLINE</span>
+            </div>
             <h1 class="title">${BOT_TAG}</h1>
-            <p style="color: #666; font-size: 13px; margin-bottom: 20px;">MULTI-INSTANCE LINK SYSTEM</p>
+            <p class="sub-title">MULTI-INSTANCE SECURE RELAY</p>
+
             <div class="field">
-                <label>Node Tag (Session ID)</label>
+                <label>NODE TAG (SESSION ID)</label>
                 <input type="text" id="botId" placeholder="e.g. dinu_node1">
             </div>
+
             <div class="field">
-                <label>WhatsApp Number</label>
+                <label>WHATSAPP NUMBER</label>
                 <input type="text" id="phone" placeholder="947xxxxxxxx">
             </div>
-            <button class="btn" id="actionBtn" onclick="generateCode()">GET PAIRING CODE</button>
+
+            <button class="btn" id="actionBtn" onclick="generateCode()">
+                <div class="spinner" id="spinner"></div>
+                <span id="btnText">GET PAIRING CODE</span>
+            </button>
+
             <div id="code-container">
-                <div style="font-size: 11px; color: #888; margin-bottom: 5px;">CLICK CODE TO COPY</div>
+                <div class="copy-badge" id="autoCopyNotice">⚡ AUTO-COPIED TO CLIPBOARD</div>
                 <div class="code-text" id="codeOut" onclick="copyValue()">--------</div>
-                <div style="font-size: 12px; color: #555;">WhatsApp > Linked Devices > Link with phone number</div>
+                <div style="font-size: 12px; color: #888ba8; margin-top: 5px;">
+                    WhatsApp > Linked Devices > Link with phone number
+                </div>
             </div>
         </div>
+
+        <div class="toast" id="toast">
+            <span>✨</span>
+            <span id="toastMsg">Code copied to clipboard!</span>
+        </div>
+
         <script>
+            function showToast(msg) {
+                const toast = document.getElementById('toast');
+                document.getElementById('toastMsg').innerText = msg;
+                toast.classList.add('show');
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+
             async function generateCode() {
                 const phoneInput = document.getElementById('phone');
                 const botIdInput = document.getElementById('botId');
                 const btn = document.getElementById('actionBtn');
+                const btnText = document.getElementById('btnText');
+                const spinner = document.getElementById('spinner');
                 const container = document.getElementById('code-container');
                 const codeOut = document.getElementById('codeOut');
 
                 let phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
                 let botId = botIdInput.value.trim() || 'node_' + Math.floor(1000 + Math.random() * 9000);
 
-                if (!phone) return alert('කරුණාකර WhatsApp අංකය ඇතුළත් කරන්න!');
+                if (!phone) {
+                    showToast('⚠️ කරුණාකර WhatsApp අංකය ඇතුළත් කරන්න!');
+                    return;
+                }
 
-                btn.innerText = 'GENERATING CODE...';
                 btn.disabled = true;
+                btnText.innerText = 'GENERATING CODE...';
+                spinner.style.display = 'block';
                 container.style.display = 'none';
 
                 try {
                     const res = await fetch(\`/pair?number=\${encodeURIComponent(phone)}&botId=\${encodeURIComponent(botId)}\`);
                     const data = await res.json();
+
                     if (data.status && data.pairingCode) {
                         codeOut.innerText = data.pairingCode;
                         container.style.display = 'block';
+
+                        // Auto-copy to clipboard
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(data.pairingCode).then(() => {
+                                showToast('🔥 Code copied to clipboard: ' + data.pairingCode);
+                            }).catch(() => {});
+                        }
                     } else {
-                        alert(data.error || 'Failed to get code. Try again.');
+                        showToast(data.error || 'Failed to generate code.');
                     }
                 } catch {
-                    alert('Server error! Please try again.');
+                    showToast('❌ Server error! Please try again.');
                 } finally {
-                    btn.innerText = 'GET PAIRING CODE';
                     btn.disabled = false;
+                    btnText.innerText = 'GET PAIRING CODE';
+                    spinner.style.display = 'none';
                 }
             }
+
             function copyValue() {
                 const text = document.getElementById('codeOut').innerText;
                 if (!text || text.includes('-')) return;
-                navigator.clipboard.writeText(text);
-                alert('COPIED: ' + text);
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        showToast('COPIED: ' + text);
+                    });
+                }
             }
         </script>
     </body>
