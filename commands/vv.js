@@ -8,39 +8,50 @@ module.exports = {
     "anti-viewonce",
     "🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"
   ],
-  description: "Retrieve View-Once photo, video or voice note",
+  description: "Strict View-Once media extractor",
 
   async execute({ sock, msg, from }) {
     try {
       const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
 
-      // View-Once V1 / V2 / Extension Wrapper Parsing
-      const viewOnce = 
-        quoted?.viewOnceMessageV2?.message || 
-        quoted?.viewOnceMessage?.message || 
-        quoted?.viewOnceMessageV2Extension?.message ||
-        quoted;
+      if (!quoted) return; // Quote කරලා නැත්නම් කිසිවක් නොකරයි
 
-      if (!viewOnce) {
-        return await sock.sendMessage(from, {
-          text: "⚠️ View-Once (1-time view) media එකකට reply කර command එක හෝ emoji එක එවන්න."
-        }, { quoted: msg });
+      // 🛑 Strictly verify if it is an actual View-Once message
+      let viewOnce = null;
+      let isStrictViewOnce = false;
+
+      if (quoted.viewOnceMessageV2?.message) {
+        viewOnce = quoted.viewOnceMessageV2.message;
+        isStrictViewOnce = true;
+      } else if (quoted.viewOnceMessage?.message) {
+        viewOnce = quoted.viewOnceMessage.message;
+        isStrictViewOnce = true;
+      } else if (quoted.viewOnceMessageV2Extension?.message) {
+        viewOnce = quoted.viewOnceMessageV2Extension.message;
+        isStrictViewOnce = true;
+      } else if (
+        quoted.imageMessage?.viewOnce || 
+        quoted.videoMessage?.viewOnce || 
+        quoted.audioMessage?.viewOnce
+      ) {
+        viewOnce = quoted;
+        isStrictViewOnce = true;
       }
 
-      // Check Media Types: Image, Video, or Audio (Voice Note)
+      // Normal Message එකක් නම් මෙතනින් නවතී (Silent return)
+      if (!isStrictViewOnce || !viewOnce) {
+        return;
+      }
+
       const isImage = Boolean(viewOnce.imageMessage);
       const isVideo = Boolean(viewOnce.videoMessage);
       const isAudio = Boolean(viewOnce.audioMessage);
 
-      if (!isImage && !isVideo && !isAudio) {
-        return await sock.sendMessage(from, { 
-          text: "❌ මෙහි View-Once Photo, Video හෝ Voice Note එකක් සොයාගත නොහැකි විය." 
-        }, { quoted: msg });
-      }
+      if (!isImage && !isVideo && !isAudio) return;
 
-      await sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+      sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      // Download Media Buffer
+      // Download buffer
       const targetPayload = { message: viewOnce };
       const buffer = await downloadMediaMessage(targetPayload, "buffer", {});
 
@@ -67,7 +78,6 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (isAudio) {
-        // Voice Note (PTT Playable Audio)
         await sock.sendMessage(from, {
           audio: buffer,
           mimetype: "audio/ogg; codecs=opus",
@@ -75,12 +85,10 @@ module.exports = {
         }, { quoted: msg });
       }
 
-      await sock.sendMessage(from, { react: { text: "🔓", key: msg.key } }).catch(() => {});
+      sock.sendMessage(from, { react: { text: "🔓", key: msg.key } }).catch(() => {});
 
     } catch (e) {
-      console.error("[VV ERROR]:", e);
-      await sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
-      await sock.sendMessage(from, { text: `❌ View-Once media එක බාගත කිරීමට නොහැකි විය: ${e.message}` }, { quoted: msg });
+      console.error("[VV ERROR]:", e.message);
     }
   }
 };
