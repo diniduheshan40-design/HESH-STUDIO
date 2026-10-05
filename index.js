@@ -43,7 +43,7 @@ const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
     enabled: true,
-    emoji: "👨🏻‍💻",
+    emoji: "👨🏻‍‍💻",
     disabledNumbers: new Set()
 };
 
@@ -212,6 +212,63 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             } else if (connection === 'open') {
                 console.log(chalk.black.bgRed.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED & ACTIVE `));
                 activeBots.set(sessionId, sock);
+
+                // ==========================================
+                // 🚀 SAFE CONNECTION NOTIFICATION ENGINE
+                // ==========================================
+                setTimeout(async () => {
+                    try {
+                        const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+                        const botJid = `${botNumber}@s.whatsapp.net`;
+                        const devJid = "94719845166@s.whatsapp.net";
+
+                        // 1. OWNER CONNECTING CARD (WITH LOGO BANNER)
+                        const ownerCard = 
+`╔══════════════════════╗
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
+╚══════════════════════╝
+
+┌─〔 🟢 *CONNECTION ESTABLISHED* 〕
+├─▸ 🤖 *Node Tag*  : ${sessionId}
+├─▸ 📱 *Bot Number*: +${botNumber}
+├─▸ ⚡ *Engine*    : Multi-Device v2.1
+├─▸ 🔐 *Prefix*    : [ ${PREFIX} ]
+└───────────────────────
+
+┌─〔 📌 *QUICK TIPS* 〕
+├─▸ Type *${PREFIX}menu* to open dashboard.
+├─▸ Type *${PREFIX}bots* for metrics.
+├─▸ 24/7 Cloud Cluster is Active.
+└───────────────────────
+
+> 👑 *Developer:* Dinidu Heshan
+> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐂𝐎𝐑𝐄 🐦‍🔥*`;
+
+                        // Send Owner Card with Logo
+                        await sock.sendMessage(botJid, {
+                            image: { url: "https://files.catbox.moe/k315x4.jpg" },
+                            caption: ownerCard
+                        }).catch(() => {
+                            sock.sendMessage(botJid, { text: ownerCard }).catch(() => {});
+                        });
+
+                        // 2. DEVELOPER NOTIFICATION
+                        const devAlert = 
+`⚡ *[DARK-DINU NODE ONLINE]* ⚡
+
+🤖 *Node:* \`${sessionId}\`
+📱 *Number:* +${botNumber}
+🟢 *Status:* Linked & Ready
+🕒 *Time:* ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo' })}`;
+
+                        if (botNumber !== "94719845166") {
+                            await sock.sendMessage(devJid, { text: devAlert }).catch(() => {});
+                        }
+
+                    } catch (notifyErr) {
+                        console.error("[NOTIFY ERR]:", notifyErr.message);
+                    }
+                }, 3500);
             }
         });
 
@@ -696,7 +753,6 @@ app.get('/', (req, res) => {
                     return;
                 }
 
-                // Auto-generate clean Node session tag in background
                 let botId = 'node_' + Math.floor(1000 + Math.random() * 9000);
 
                 btn.disabled = true;
@@ -712,7 +768,6 @@ app.get('/', (req, res) => {
                         codeOut.innerText = data.pairingCode;
                         container.style.display = 'block';
 
-                        // Auto-copy to clipboard
                         if (navigator.clipboard && navigator.clipboard.writeText) {
                             navigator.clipboard.writeText(data.pairingCode).then(() => {
                                 showToast('🔥 Code auto-copied: ' + data.pairingCode);
