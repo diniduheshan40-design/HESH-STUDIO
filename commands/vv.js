@@ -6,7 +6,7 @@ module.exports = {
     "save", 
     "viewonce", 
     "anti-viewonce",
-    "🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"
+    "🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️️", "👍"
   ],
   description: "Strict View-Once media extractor",
 
@@ -14,7 +14,15 @@ module.exports = {
     try {
       const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
 
-      if (!quoted) return; // Quote කරලා නැත්නම් කිසිවක් නොකරයි
+      if (!quoted) return;
+
+      // 🛑 සාමාන්‍ය Text Message එකක් නම් වහාම නවත්වයි (හිස් මැසේජ් වැටීම වළක්වයි)
+      if (
+        quoted.conversation || 
+        (quoted.extendedTextMessage && !quoted.viewOnceMessageV2 && !quoted.viewOnceMessage && !quoted.viewOnceMessageV2Extension)
+      ) {
+        return;
+      }
 
       // 🛑 Strictly verify if it is an actual View-Once message
       let viewOnce = null;
@@ -54,6 +62,8 @@ module.exports = {
       // Download buffer
       const targetPayload = { message: viewOnce };
       const buffer = await downloadMediaMessage(targetPayload, "buffer", {});
+
+      if (!buffer || buffer.length === 0) return;
 
       const defaultCaption = "> *🔓 𝐃𝐀𝐑𝐊-𝐃𝐈𝐍𝐔 𝐀𝐍𝐓𝐈-𝐕𝐈𝐄𝐖𝐎𝐍𝐂𝐄*";
 
