@@ -2,43 +2,85 @@ const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
 module.exports = {
   name: "vv",
-  alias: ["viewonce", "anti-viewonce"],
-  description: "Retrieve View-Once photo or video",
+  alias: [
+    "save", 
+    "viewonce", 
+    "anti-viewonce",
+    "🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"
+  ],
+  description: "Retrieve View-Once photo, video or voice note",
 
   async execute({ sock, msg, from }) {
     try {
       const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-      const viewOnce = quoted?.viewOnceMessageV2?.message || quoted?.viewOnceMessage?.message;
+
+      // View-Once V1 / V2 / Extension Wrapper Parsing
+      const viewOnce = 
+        quoted?.viewOnceMessageV2?.message || 
+        quoted?.viewOnceMessage?.message || 
+        quoted?.viewOnceMessageV2Extension?.message ||
+        quoted;
 
       if (!viewOnce) {
         return await sock.sendMessage(from, {
-          text: "⚠️ View-Once (1-time view) photo හෝ video එකකට reply කර `.vv` ගසන්න."
+          text: "⚠️ View-Once (1-time view) media එකකට reply කර command එක හෝ emoji එක එවන්න."
         }, { quoted: msg });
       }
 
-      sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+      // Check Media Types: Image, Video, or Audio (Voice Note)
+      const isImage = Boolean(viewOnce.imageMessage);
+      const isVideo = Boolean(viewOnce.videoMessage);
+      const isAudio = Boolean(viewOnce.audioMessage);
 
-      const mediaType = viewOnce.imageMessage ? "image" : viewOnce.videoMessage ? "video" : null;
-      if (!mediaType) {
-        return await sock.sendMessage(from, { text: "❌ හඳුනා නොගත් media වර්ගයකි." }, { quoted: msg });
+      if (!isImage && !isVideo && !isAudio) {
+        return await sock.sendMessage(from, { 
+          text: "❌ මෙහි View-Once Photo, Video හෝ Voice Note එකක් සොයාගත නොහැකි විය." 
+        }, { quoted: msg });
       }
 
-      // Media download කිරීම
-      const fakeMsg = { message: viewOnce };
-      const buffer = await downloadMediaMessage(fakeMsg, "buffer", {});
+      await sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      const caption = viewOnce[mediaType + "Message"]?.caption || "🖤 *DARK-DINU ANTI-VIEWONCE*";
+      // Download Media Buffer
+      const targetPayload = { message: viewOnce };
+      const buffer = await downloadMediaMessage(targetPayload, "buffer", {});
 
-      if (mediaType === "image") {
-        await sock.sendMessage(from, { image: buffer, caption }, { quoted: msg });
-      } else {
-        await sock.sendMessage(from, { video: buffer, caption }, { quoted: msg });
+      const defaultCaption = "> *🔓 𝐃𝐀𝐑𝐊-𝐃𝐈𝐍𝐔 𝐀𝐍𝐓𝐈-𝐕𝐈𝐄𝐖𝐎𝐍𝐂𝐄*";
+
+      if (isImage) {
+        const caption = viewOnce.imageMessage?.caption 
+          ? `${viewOnce.imageMessage.caption}\n\n${defaultCaption}` 
+          : defaultCaption;
+
+        await sock.sendMessage(from, {
+          image: buffer,
+          caption: caption
+        }, { quoted: msg });
+
+      } else if (isVideo) {
+        const caption = viewOnce.videoMessage?.caption 
+          ? `${viewOnce.videoMessage.caption}\n\n${defaultCaption}` 
+          : defaultCaption;
+
+        await sock.sendMessage(from, {
+          video: buffer,
+          caption: caption
+        }, { quoted: msg });
+
+      } else if (isAudio) {
+        // Voice Note (PTT Playable Audio)
+        await sock.sendMessage(from, {
+          audio: buffer,
+          mimetype: "audio/ogg; codecs=opus",
+          ptt: true
+        }, { quoted: msg });
       }
 
-      sock.sendMessage(from, { react: { text: "🔓", key: msg.key } }).catch(() => {});
+      await sock.sendMessage(from, { react: { text: "🔓", key: msg.key } }).catch(() => {});
+
     } catch (e) {
       console.error("[VV ERROR]:", e);
-      await sock.sendMessage(from, { text: "❌ View-Once media එක ලබා ගැනීමට නොහැකි විය." }, { quoted: msg });
+      await sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
+      await sock.sendMessage(from, { text: `❌ View-Once media එක බාගත කිරීමට නොහැකි විය: ${e.message}` }, { quoted: msg });
     }
   }
 };
