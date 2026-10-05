@@ -18,8 +18,8 @@ try {
 global.menuTracker = global.menuTracker || new Map();
 let isMenuHooked = false;
 
-// Local Image Buffer Loader (Zero Network Lag / Direct File Read)
-function getLocalLogo() {
+// Local Image Buffer Loader (Zero Lag / Direct File Read with URL fallback)
+function getMenuBanner() {
   try {
     const rootPath = path.join(process.cwd(), 'logo.jpg');
     if (fs.existsSync(rootPath)) return fs.readFileSync(rootPath);
@@ -27,12 +27,13 @@ function getLocalLogo() {
     const assetPath = path.join(process.cwd(), 'assets', 'logo.jpg');
     if (fs.existsSync(assetPath)) return fs.readFileSync(assetPath);
   } catch (_) {}
-  return null;
+  // Default URL banner if local file not found
+  return { url: "https://files.catbox.moe/k315x4.jpg" };
 }
 
 module.exports = {
   name: "menu",
-  alias: ["help", "list", "panel"],
+  alias: ["help", "list", "panel", "m"],
   description: "Cyber Card Themed Interactive Category Menu",
 
   async execute({ sock, msg, from, prefix, commands, activeBotsCount }) {
@@ -45,6 +46,7 @@ module.exports = {
       const secs = Math.floor(uptimeSec % 60);
 
       const pref = prefix || config.PREFIX || ".";
+      const totalCmds = commands?.size || 0;
 
       // Main Menu UI (Cyber Card Theme)
       const mainText = 
@@ -57,7 +59,7 @@ module.exports = {
 ├─▸ ⚡ *Prefix*  : [ ${pref} ]
 ├─▸ 🌐 *Nodes*   : ${activeBotsCount || 1} Online
 ├─▸ ⏳ *Uptime*  : ${hours}h ${mins}m ${secs}s
-├─▸ 📦 *Modules* : ${commands?.size || 0} Loaded
+├─▸ 📦 *Modules* : ${totalCmds} Loaded
 └───────────────────────
 
 ┌─〔 🥀 *COMMAND PANELS* 〕
@@ -72,34 +74,29 @@ module.exports = {
 
 ${config.FOOTER}`;
 
-      const imgBuffer = getLocalLogo();
+      const bannerData = getMenuBanner();
 
-      let sentMsg;
-      if (imgBuffer) {
-        sentMsg = await sock.sendMessage(from, {
-          image: imgBuffer,
-          caption: mainText
-        }, { quoted: msg });
-      } else {
-        sentMsg = await sock.sendMessage(from, {
-          text: mainText
-        }, { quoted: msg });
+      const sentMsg = await sock.sendMessage(from, {
+        image: bannerData,
+        caption: mainText
+      }, { quoted: msg });
+
+      // Session Tracking (Valid for 5 Minutes)
+      const menuId = sentMsg?.key?.id;
+      if (menuId) {
+        global.menuTracker.set(menuId, {
+          chat: from,
+          pref: pref,
+          banner: bannerData,
+          time: Date.now()
+        });
+
+        setTimeout(() => {
+          if (global.menuTracker) global.menuTracker.delete(menuId);
+        }, 5 * 60 * 1000);
       }
 
-      // Session Tracking (Valid for 5 Mins)
-      const menuId = sentMsg.key.id;
-      global.menuTracker.set(menuId, {
-        chat: from,
-        pref: pref,
-        img: imgBuffer,
-        time: Date.now()
-      });
-
-      setTimeout(() => {
-        global.menuTracker.delete(menuId);
-      }, 5 * 60 * 1000);
-
-      // Register Internal Socket Listener
+      // Register Internal Socket Listener (One-time Hook)
       if (!isMenuHooked) {
         isMenuHooked = true;
 
@@ -128,6 +125,7 @@ ${config.FOOTER}`;
               let subText = "";
               let reactIcon = "";
 
+              // 1. GENERAL & INFO
               if (replyChoice === '1') {
                 reactIcon = "⚡";
                 subText = 
@@ -136,13 +134,16 @@ ${config.FOOTER}`;
 ╚══════════════════════╝
 
 ┌─〔 📂 *MODULE LIST* 〕
-├─▸ 📌 *${p}ping*  : Check bot latency & response
-├─▸ 📌 *${p}menu*  : Display system command list
-├─▸ 📌 *${p}alive* : Check server & connection state
+├─▸ 📌 *${p}ping*    : Check bot latency & response
+├─▸ 📌 *${p}menu*    : Display system dashboard
+├─▸ 📌 *${p}alive*   : Server & connection health
+├─▸ 📌 *${p}status*  : Cluster nodes & uptime metrics
 └───────────────────────
 
 ${config.FOOTER}`;
-              } else if (replyChoice === '2') {
+              } 
+              // 2. MEDIA DOWNLOADER
+              else if (replyChoice === '2') {
                 reactIcon = "📥";
                 subText = 
 `╔══════════════════════╗
@@ -150,14 +151,18 @@ ${config.FOOTER}`;
 ╚══════════════════════╝
 
 ┌─〔 📂 *MODULE LIST* 〕
-├─▸ 📌 *${p}tiktok* <url> : TikTok HD / SD / MP3
-├─▸ 📌 *${p}tt* <url>     : TikTok quick shortcut
-├─▸ 📌 *${p}url*          : Upload media & get direct link
-├─▸ 📌 *${p}tourl*        : Media upload alias
+├─▸ 📌 *${p}song* <query>    : YouTube MP3 / Document / Voice
+├─▸ 📌 *${p}video* <query>   : YouTube Multi-Quality MP4
+├─▸ 📌 *${p}fb* <url>        : Facebook HD / SD / MP3
+├─▸ 📌 *${p}tiktok* <url>    : TikTok HD / SD / Audio
+├─▸ 📌 *${p}insta* <url>     : Instagram Reels & Photos
+├─▸ 📌 *${p}vv* (reply)      : Unlock ViewOnce media
 └───────────────────────
 
 ${config.FOOTER}`;
-              } else if (replyChoice === '3') {
+              } 
+              // 3. STEALTH & UTILITY
+              else if (replyChoice === '3') {
                 reactIcon = "👁️";
                 subText = 
 `╔══════════════════════╗
@@ -165,13 +170,16 @@ ${config.FOOTER}`;
 ╚══════════════════════╝
 
 ┌─〔 📂 *MODULE LIST* 〕
-├─▸ 📌 *${p}vv*   : Decrypt view-once media
-├─▸ 📌 *${p}jid*  : Retrieve user & chat JID
-├─▸ 📌 *${p}read* : Mark quoted message as read
+├─▸ 📌 *${p}vv*     : Decrypt ViewOnce photos & videos
+├─▸ 📌 *${p}jid*    : Retrieve user & chat JID
+├─▸ 📌 *${p}tourl*  : Convert media into cloud link
+├─▸ 📌 *${p}dreact* : Developer auto-reaction toggle
 └───────────────────────
 
 ${config.FOOTER}`;
-              } else if (replyChoice === '4') {
+              } 
+              // 4. SYSTEM & OWNER
+              else if (replyChoice === '4') {
                 reactIcon = "💻";
                 subText = 
 `╔══════════════════════╗
@@ -179,13 +187,15 @@ ${config.FOOTER}`;
 ╚══════════════════════╝
 
 ┌─〔 📂 *MODULE LIST* 〕
-├─▸ 📌 *${p}system* : RAM, CPU & instance health
-├─▸ 📌 *${p}msg*    : Direct phone transmitter
-├─▸ 📌 *${p}mgspro* : Multi-node broadcast relay
+├─▸ 📌 *${p}system*  : Host RAM, CPU & instance health
+├─▸ 📌 *${p}bots*    : Connected active bot nodes count
+├─▸ 📌 *${p}restart* : Reboot current session container
 └───────────────────────
 
 ${config.FOOTER}`;
-              } else if (replyChoice === '5') {
+              } 
+              // 5. FULL COMMAND LIST
+              else if (replyChoice === '5') {
                 reactIcon = "📜";
                 subText = 
 `╔══════════════════════╗
@@ -193,10 +203,10 @@ ${config.FOOTER}`;
 ╚══════════════════════╝
 
 ┌─〔 📂 *INDEX LIST* 〕
-├─▸ ${p}ping • ${p}menu • ${p}alive
-├─▸ ${p}tiktok • ${p}tt • ${p}url • ${p}tourl
-├─▸ ${p}vv • ${p}jid • ${p}read
-├─▸ ${p}system • ${p}msg • ${p}mgspro
+├─▸ ${p}ping • ${p}menu • ${p}alive • ${p}status
+├─▸ ${p}song • ${p}video • ${p}fb • ${p}tiktok • ${p}insta
+├─▸ ${p}vv • ${p}jid • ${p}tourl • ${p}dreact
+├─▸ ${p}system • ${p}bots • ${p}restart
 └───────────────────────
 
 ${config.FOOTER}`;
@@ -205,16 +215,10 @@ ${config.FOOTER}`;
               if (subText) {
                 sock.sendMessage(currentChat, { react: { text: reactIcon, key: inMsg.key } }).catch(() => {});
 
-                if (sessionData.img) {
-                  await sock.sendMessage(currentChat, {
-                    image: sessionData.img,
-                    caption: subText
-                  }, { quoted: inMsg });
-                } else {
-                  await sock.sendMessage(currentChat, {
-                    text: subText
-                  }, { quoted: inMsg });
-                }
+                await sock.sendMessage(currentChat, {
+                  image: sessionData.banner,
+                  caption: subText
+                }, { quoted: inMsg });
               }
             }
           } catch (listenerError) {
