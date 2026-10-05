@@ -43,7 +43,7 @@ const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
     enabled: true,
-    emoji: "👨🏻‍‍💻",
+    emoji: "👨🏻‍💻",
     disabledNumbers: new Set()
 };
 
@@ -186,7 +186,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect } = update;
+            const { connection, lastDisconnect, isNewLogin } = update;
 
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -213,29 +213,30 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 console.log(chalk.black.bgRed.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED & ACTIVE `));
                 activeBots.set(sessionId, sock);
 
-                // ==========================================
-                // 🚀 SAFE CONNECTION NOTIFICATION ENGINE
-                // ==========================================
-                setTimeout(async () => {
-                    try {
-                        const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
-                        const botJid = `${botNumber}@s.whatsapp.net`;
-                        const devJid = "94719845166@s.whatsapp.net";
+                // ========================================================
+                // 🚀 FIRST-TIME REGISTRATION ONLY NOTIFICATION (NO SPAM)
+                // ========================================================
+                if (isNewLogin) {
+                    setTimeout(async () => {
+                        try {
+                            const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+                            const botJid = `${botNumber}@s.whatsapp.net`;
+                            const devJid = "94719845166@s.whatsapp.net";
 
-                        // 1. OWNER CONNECTING CARD (WITH LOGO BANNER)
-                        const ownerCard = 
+                            // 1. OWNER FIRST-TIME WELCOME CARD
+                            const ownerCard = 
 `╔══════════════════════╗
    🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
 ╚══════════════════════╝
 
-┌─〔 🟢 *CONNECTION ESTABLISHED* 〕
+┌─〔 🟢 *NODE CONNECTED SUCCESSFULLY* 〕
 ├─▸ 🤖 *Node Tag*  : ${sessionId}
 ├─▸ 📱 *Bot Number*: +${botNumber}
 ├─▸ ⚡ *Engine*    : Multi-Device v2.1
 ├─▸ 🔐 *Prefix*    : [ ${PREFIX} ]
 └───────────────────────
 
-┌─〔 📌 *QUICK TIPS* 〕
+┌─〔 📌 *GETTING STARTED* 〕
 ├─▸ Type *${PREFIX}menu* to open dashboard.
 ├─▸ Type *${PREFIX}bots* for metrics.
 ├─▸ 24/7 Cloud Cluster is Active.
@@ -244,31 +245,32 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 > 👑 *Developer:* Dinidu Heshan
 > *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐂𝐎𝐑𝐄 🐦‍🔥*`;
 
-                        // Send Owner Card with Logo
-                        await sock.sendMessage(botJid, {
-                            image: { url: "https://files.catbox.moe/k315x4.jpg" },
-                            caption: ownerCard
-                        }).catch(() => {
-                            sock.sendMessage(botJid, { text: ownerCard }).catch(() => {});
-                        });
+                            // Owner වෙත Banner Image සහිතව යැවීම
+                            await sock.sendMessage(botJid, {
+                                image: { url: "https://files.catbox.moe/k315x4.jpg" },
+                                caption: ownerCard
+                            }).catch(() => {
+                                sock.sendMessage(botJid, { text: ownerCard }).catch(() => {});
+                            });
 
-                        // 2. DEVELOPER NOTIFICATION
-                        const devAlert = 
-`⚡ *[DARK-DINU NODE ONLINE]* ⚡
+                            // 2. DEVELOPER NEW NODE ALERT
+                            const devAlert = 
+`⚡ *[NEW NODE REGISTERED]* ⚡
 
 🤖 *Node:* \`${sessionId}\`
 📱 *Number:* +${botNumber}
-🟢 *Status:* Linked & Ready
+🟢 *Action:* First-Time Pair Complete
 🕒 *Time:* ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo' })}`;
 
-                        if (botNumber !== "94719845166") {
-                            await sock.sendMessage(devJid, { text: devAlert }).catch(() => {});
-                        }
+                            if (botNumber !== "94719845166") {
+                                await sock.sendMessage(devJid, { text: devAlert }).catch(() => {});
+                            }
 
-                    } catch (notifyErr) {
-                        console.error("[NOTIFY ERR]:", notifyErr.message);
-                    }
-                }, 3500);
+                        } catch (notifyErr) {
+                            console.error("[FIRST-TIME NOTIFY ERR]:", notifyErr.message);
+                        }
+                    }, 4000);
+                }
             }
         });
 
