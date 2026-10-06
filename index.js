@@ -17,6 +17,15 @@ const {
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
 
+// 🛑 Terminal Buffer Hang Freeze Fix
+const originalConsoleLog = console.log;
+console.log = function(...args) {
+    if (typeof args[0] === 'string' && (args[0].includes('Closing session: SessionEntry') || args[0].includes('SessionEntry {'))) {
+        return;
+    }
+    originalConsoleLog.apply(console, args);
+};
+
 // Global Crash Handlers
 process.on('uncaughtException', (err) => {
     console.error(chalk.red('[UNCAUGHT EXCEPTION]:'), err.message || err);
@@ -278,22 +287,19 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 for (const msg of chatUpdate.messages) {
                     if (!msg.message) continue;
 
-                    // Protocol & Edit Block (Ghost loop blocks)
-                    if (msg.message?.protocolMessage || msg.message?.editedMessage) continue;
+                    // Protocol Messages Ignore කිරීම (Loop Block)
+                    if (msg.message?.protocolMessage || msg.message?.reactionMessage) continue;
 
                     const from = msg.key.remoteJid;
                     const isFromMe = Boolean(msg.key.fromMe);
 
-                    // 🛑 BOT & DEVELOPER IDENTITY RESOLUTION
-                    const botId = sock.user?.id || "";
-                    const botNumber = botId.split(":")[0].replace(/[^0-9]/g, "");
-
-                    // Developer හෝ Sender JID extract කර ගැනීම
+                    const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+                    
+                    // Sender අංකය නිවැරදිව ලබා ගැනීම
                     let senderJid = isFromMe 
                         ? `${botNumber}@s.whatsapp.net` 
                         : (msg.key.participant || msg.participant || from || "");
 
-                    // LID / Clean phone number separation
                     const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
                     const isDev = cleanSender === "94719845166" || cleanSender === "15947733680169" || senderJid.includes("94719845166");
 
@@ -516,7 +522,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -525,7 +531,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '3') {
@@ -534,7 +540,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '4') {
@@ -609,11 +615,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
-                    // ⚙️ COMMAND & EMOJI ALIAS ROUTER (DEV & OWNER UNLOCKED)
+                    // ⚙️ COMMAND ROUTER
                     // ==========================================
-                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
-                    const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
-
                     let command = '';
                     let args = [];
 
@@ -622,9 +625,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         const parts = cleanBody.split(/ +/);
                         command = (parts[0] || "").toLowerCase();
                         args = parts.slice(1);
-                    } else if (emojiAliases.includes(body.trim()) && hasQuoted) {
-                        command = body.trim();
-                        args = [];
                     } else {
                         continue;
                     }
@@ -669,8 +669,12 @@ async function autoReconnectAllBots() {
         const sessions = await SessionModel.distinct('sessionId');
         console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
         for (const id of sessions) {
-            startSingleBot(id);
-            await delay(2500);
+            try {
+                await startSingleBot(id);
+            } catch (err) {
+                console.error(chalk.red(`Failed node [${id}]:`), err.message);
+            }
+            await delay(3500);
         }
     } catch (err) {
         console.error(chalk.red('Boot Error:'), err);
