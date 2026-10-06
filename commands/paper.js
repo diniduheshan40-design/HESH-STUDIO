@@ -1,5 +1,23 @@
 const axios = require('axios');
 
+// සිංහල වචන pastpapers.wiki සයිට් එකට තේරෙන keywords බවට පත් කිරීම
+function cleanQuery(text) {
+  let q = text.toLowerCase()
+    .replace(/සිංහල/g, 'sinhala')
+    .replace(/විද්‍යාව/g, 'science')
+    .replace(/ගණිතය/g, 'mathematics')
+    .replace(/ඉංග්‍රීසි/g, 'english')
+    .replace(/ඉතිහාසය/g, 'history')
+    .replace(/පේපර්|පේපර්ස්/g, '')
+    .trim();
+
+  // Grade එකක් දී නැත්නම් default Grade 11 එකතු කිරීම
+  if (!q.includes('grade') && !q.includes('al') && !q.includes('ol')) {
+    q = `grade 11 ${q}`;
+  }
+  return q;
+}
+
 module.exports = {
   name: "paper",
   alias: ["pastpaper", "exam", "pdfdl"],
@@ -8,77 +26,71 @@ module.exports = {
 
   async execute({ sock, msg, from, args, prefix }) {
     try {
-      const inputQuery = args.join(' ').trim();
+      const rawInput = args.join(' ').trim();
 
-      if (!inputQuery) {
+      if (!rawInput) {
         return await sock.sendMessage(from, { 
-          text: `⚠️ *INVALID USAGE*\n\nPlease provide a search query or a valid link.\n\n*Format:* \`${prefix || "."}paper <grade / subject / year / link>\`\n*Examples:*\n• \`${prefix || "."}paper 2023 grade 11 science sinhala\`\n• \`${prefix || "."}paper 2024 al ict paper\`` 
+          text: `⚠️ *INVALID USAGE*\n\nPlease provide subject & grade.\n\n*Format:* \`${prefix || "."}paper <subject / grade>\`\n*Examples:*\n• \`${prefix || "."}paper sinhala\`\n• \`${prefix || "."}paper grade 11 science\`\n• \`${prefix || "."}paper ict\`` 
         }, { quoted: msg });
       }
 
       await sock.sendMessage(from, { react: { text: "🔍", key: msg.key } }).catch(() => {});
 
-      let targetUrl = inputQuery;
+      let targetUrl = rawInput;
 
-      // 1. User ලින්ක් එකක් නොදුන් විට Smart Target Resolver එක ක්‍රියාත්මක වීම
-      if (!inputQuery.startsWith('http://') && !inputQuery.startsWith('https://')) {
-        try {
-          const searchUrl = `https://pastpapers.wiki/?s=${encodeURIComponent(inputQuery)}`;
-          const searchRes = await axios.get(searchUrl, {
+      // 1. Direct pastpapers.wiki link එකක් නොවේ නම් Auto-Search කිරීම
+      if (!rawInput.startsWith('http://') && !rawInput.startsWith('https://')) {
+        let searchQuery = cleanQuery(rawInput);
+
+        const searchAndFindPost = async (queryTerm) => {
+          const endpoint = `https://pastpapers.wiki/?s=${encodeURIComponent(queryTerm)}`;
+          const res = await axios.get(endpoint, {
             timeout: 15000,
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
           });
+          const html = res.data || "";
 
-          const html = searchRes.data || "";
-
-          // Archive / Category / Tag පිටු මඟහැර සැබෑ Single Article Post URL එකක් පමණක් සොයා ගැනීම
-          const urlMatches = [...html.matchAll(/<h2[^>]*class="[^"]*entry-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"/gi)];
-          let validPostUrl = null;
-
-          for (const m of urlMatches) {
-            const foundUrl = m[1];
+          // සැබෑ Single Article Links පමණක් තෝරා ගැනීම (Category/Tag මඟහැරීම)
+          const matches = [...html.matchAll(/<h2[^>]*class="[^"]*entry-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"/gi)];
+          for (const m of matches) {
+            const url = m[1];
             if (
-              foundUrl &&
-              !foundUrl.includes('/category/') &&
-              !foundUrl.includes('/tag/') &&
-              !foundUrl.includes('/author/') &&
-              foundUrl.includes('pastpapers.wiki')
+              url &&
+              !url.includes('/category/') &&
+              !url.includes('/tag/') &&
+              !url.includes('/author/') &&
+              url.includes('pastpapers.wiki')
             ) {
-              validPostUrl = foundUrl;
-              break;
+              return url;
             }
           }
+          return null;
+        };
 
-          // Regex Method 2: සාමාන්‍ය post links scan කිරීම
-          if (!validPostUrl) {
-            const fallbackMatches = [...html.matchAll(/href="(https:\/\/pastpapers\.wiki\/[a-zA-Z0-9\-]+\/)"/gi)];
-            for (const fm of fallbackMatches) {
-              const u = fm[1];
-              if (!u.includes('/category/') && !u.includes('/tag/') && u.split('/').length >= 4) {
-                validPostUrl = u;
-                break;
-              }
-            }
-          }
+        // පළමු සෙවීම
+        let foundPost = await searchAndFindPost(searchQuery);
 
-          if (!validPostUrl) {
-            await sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
-            return await sock.sendMessage(from, { 
-              text: `❌ *NO PAPERS FOUND*\n\nCould not find any past paper for "${inputQuery}".\n*Tip:* Try adding Grade & Year (e.g. \`${prefix || "."}paper grade 11 ict 2023\`).` 
-            }, { quoted: msg });
-          }
-
-          targetUrl = validPostUrl;
-        } catch (searchErr) {
-          console.error("[SEARCH ERROR]:", searchErr.message);
+        // 2025 වැනි වසරවල් නොමැති නම් වසර ඉවත් කර පවතින අලුත්ම paper එකක් සෙවීම
+        if (!foundPost && searchQuery.match(/202[5-9]/)) {
+          const fallbackTerm = searchQuery.replace(/202[5-9]/g, '').trim();
+          foundPost = await searchAndFindPost(fallbackTerm);
         }
+
+        if (!foundPost) {
+          await sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
+          return await sock.sendMessage(from, { 
+            text: `❌ *NO PAPERS FOUND*\n\nCould not find available past papers for "${rawInput}".\n\n*Suggestion:* Try searching like \`${prefix || "."}paper grade 11 sinhala\` or \`${prefix || "."}paper grade 11 ict\`.` 
+          }, { quoted: msg });
+        }
+
+        targetUrl = foundPost;
       }
 
       await sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
-      // 2. Supun Downloader API එක මඟින් PDF Links ලබා ගැනීම
+      // 2. Supun Downloader API එක මඟින් PDF ලබා ගැනීම
       const apiKey = "supun-tvo5olfxylo98b8l6b9lq174";
       const apiUrl = `https://supunofc.site/api/download/pastpapers/dl?url=${encodeURIComponent(targetUrl)}&apikey=${apiKey}`;
 
@@ -97,23 +109,23 @@ module.exports = {
       if (!pdfLinks || !Array.isArray(pdfLinks) || pdfLinks.length === 0) {
         await sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
         return await sock.sendMessage(from, { 
-          text: "❌ *EMPTY PAPER ARCHIVE*\n\nNo downloadable PDF files exist on this specific page." 
+          text: `❌ *NO DOWNLOADABLE PDF*\n\nThis specific paper archive page does not contain direct PDF files.` 
         }, { quoted: msg });
       }
 
-      // 3. Status Overview Card
+      // 3. Cyber Overview Card
       const infoCard = 
 `╔══════════════════════╗
-   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️️
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷
 ╚══════════════════════╝
 
-┌─〔 📚 *PAST PAPER ENGINE* 〕
+┌─〔 📚 *PAST PAPER CLUSTER* 〕
 ├─▸ 📝 *Title*  : ${title || "Past Paper"}
 ├─▸ 📦 *Files*  : ${total_pdfs || pdfLinks.length} PDF Document(s)
-├─▸ 🌐 *Target* : ${targetUrl.slice(0, 45)}...
+├─▸ 🌐 *Source* : pastpapers.wiki
 └───────────────────────
 
-> ⚡ *Sending PDF file(s), please wait...*
+> ⚡ *Uploading PDF document(s), please wait...*
 
 > 👑 *Developer:* DINIDU HESHAN
 > *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐂𝐎𝐑𝐄 🐦‍🔥*`;
@@ -129,7 +141,7 @@ module.exports = {
         await sock.sendMessage(from, { text: infoCard }, { quoted: msg });
       }
 
-      // 4. සියලුම PDFs පිළිවෙළට WhatsApp Documents ලෙස Dispatch කිරීම
+      // 4. සියලුම PDFs පිළිවෙළට WhatsApp Document ලෙස එවනු ලැබේ
       for (let i = 0; i < pdfLinks.length; i++) {
         const directPdfUrl = pdfLinks[i];
         
@@ -155,7 +167,7 @@ module.exports = {
       console.error("[PAPER CMD ERROR]:", err.message);
       await sock.sendMessage(from, { react: { text: "❌", key: msg.key } }).catch(() => {});
       await sock.sendMessage(from, { 
-        text: `❌ *DOWNLOAD FAILED:* ${err.message || "Network timeout / Server unreachable"}` 
+        text: `❌ *DOWNLOAD FAILED:* ${err.message || "Network timeout"}` 
       }, { quoted: msg });
     }
   }
