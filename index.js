@@ -193,7 +193,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
             setTimeout(() => {
                 sendResponse(false, { error: 'Request timed out. Please try again.' });
-            }, 30000);
+            }, 35000);
         }
 
         sock.ev.on('creds.update', saveCreds);
@@ -295,7 +295,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                     const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
                     
-                    // Sender අංකය නිවැරදිව ලබා ගැනීම
                     let senderJid = isFromMe 
                         ? `${botNumber}@s.whatsapp.net` 
                         : (msg.key.participant || msg.participant || from || "");
@@ -522,7 +521,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -540,7 +539,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '4') {
@@ -1009,7 +1008,7 @@ app.get('/', (req, res) => {
                 container.style.display = 'none';
 
                 try {
-                    const res = await fetch(\`/pair?number=\${encodeURIComponent(phone)}&botId=\${encodeURIComponent(botId)}\`);
+                    const res = await fetch('/pair?number=' + encodeURIComponent(phone) + '&botId=' + encodeURIComponent(botId));
                     const data = await res.json();
 
                     if (data.status && data.pairingCode) {
@@ -1064,11 +1063,12 @@ app.get('/status', (req, res) => {
     });
 });
 
-// Port Listen & DB Boot
+// 🛑 1. මුලින්ම Express Server එක Listen කර Render Health Check පාස් කිරීම
 app.listen(PORT, () => {
     console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
 });
 
+// 🛑 2. ඉන්පසු MongoDB Connect කර Sessions එකින් එක Safe Boot කිරීම
 mongoose.connect(MONGO_URL)
     .then(async () => {
         console.log(chalk.red.bold(`[${BOT_TAG}] MONGODB CLUSTER AUTHENTICATED.`));
