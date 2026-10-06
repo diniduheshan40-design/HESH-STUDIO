@@ -1,10 +1,10 @@
 require('dotenv').config();
 const fs = require('fs'), path = require('path'), mongoose = require('mongoose'), express = require('express');
 const chalk = require('chalk'), pino = require('pino'), cors = require('cors'), NodeCache = require('node-cache');
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, delay } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, delay } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
 
-// 🛑 Spam & Buffer Freeze Filters
+// 🛑 Spam & Buffer Freeze Filter
 const origLog = console.log;
 console.log = (...args) => (typeof args[0] === 'string' && (args[0].includes('Closing session: SessionEntry') || args[0].includes('SessionEntry {'))) ? null : origLog(...args);
 process.on('uncaughtException', err => console.error(chalk.red('[UNCAUGHT EXCEPTION]:'), err?.message || err));
@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 10000, BOT_TAG = "DARK-DINU", PREFIX = process.
 
 const activeBots = new Map(), commands = new Map();
 global.activeSockets = activeBots;
-const startingBots = new Map(), pendingPairRequests = new Map(), pairingLocks = new Map();
+const startingBots = new Map();
 const msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
 ['ttCache', 'fbSessions', 'ytSessions', 'videoSessions', 'songSessions', 'menuSessions'].forEach(k => global[k] = global[k] || new Map());
@@ -64,22 +64,21 @@ const cleanNum = n => {
 const closeSock = s => { try { s?.ev?.removeAllListeners(); s?.ws?.close(); } catch (_) {} };
 
 async function startSingleBot(sessionId, phoneNumber = null, res = null) {
-    let responded = false, rTimer = null;
+    let responded = false;
     const sendRes = (status, data) => {
         if (!responded && res && !res.headersSent) {
             responded = true;
-            if (rTimer) clearTimeout(rTimer);
             return res.json({ status, ...data });
         }
     };
 
-    if (!phoneNumber && startingBots.has(sessionId)) return startingBots.get(sessionId);
-    if (phoneNumber && (startingBots.has(sessionId) || pendingPairRequests.has(sessionId))) {
-        return sendRes(false, { error: "Bot is already pairing. Please wait." });
+    if (startingBots.has(sessionId)) {
+        if (phoneNumber) return sendRes(false, { error: "Session is already booting. Please wait." });
+        return startingBots.get(sessionId);
     }
 
-    const p = (async () => {
-        let sock = null, clearSession = async () => {}, isPaired = false;
+    const bootPromise = (async () => {
+        let sock = null, clearSession = async () => {};
         try {
             if (phoneNumber) await SessionModel.deleteMany({ sessionId }).catch(() => {});
             const { state, saveCreds, clearSession: cs } = await useMongoAuthState(sessionId);
@@ -90,11 +89,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 version,
                 logger: pino({ level: 'fatal' }),
                 printQRInTerminal: false,
-                browser: Browsers.macOS('Safari'), // 👈 Official macOS Safari Signature
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
-                },
+                browser: ["Mac OS", "Chrome", "124.0.0.0"], // Canonical Pairing Signature
+                auth: state,
                 msgRetryCounterCache,
                 generateHighQualityLinkPreview: true,
                 syncFullHistory: false,
@@ -107,33 +103,26 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
             sock.ev.on('creds.update', saveCreds);
 
-            if (phoneNumber) {
-                rTimer = setTimeout(() => {
-                    if (!responded) {
-                        sendRes(false, { error: "Pairing request timed out. Please try again." });
-                        pendingPairRequests.delete(sessionId);
-                    }
-                }, 60000);
-                pendingPairRequests.set(sessionId, { number: phoneNumber, at: Date.now() });
-            }
-
-            // Direct Pairing Code Generator
+            // 🛑 Instant Pairing Code Generator
             if (phoneNumber && !sock.authState.creds.registered) {
                 setTimeout(async () => {
-                    if (isPaired) return;
                     try {
                         const num = cleanNum(phoneNumber);
                         if (num.length < 10) throw new Error("Invalid phone number length.");
-                        console.log(chalk.cyan(`[${BOT_TAG}] Generating Safari Pairing Code for: ${num}`));
+                        console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${num}`));
                         const code = await sock.requestPairingCode(num);
-                        isPaired = true;
-                        console.log(chalk.green(`[${BOT_TAG}] Pairing Code: ${code}`));
+                        console.log(chalk.green(`[${BOT_TAG}] Code Received: ${code}`));
                         sendRes(true, { sessionId, pairingCode: code });
                     } catch (err) {
                         console.error(chalk.red('[PAIR REQ ERR]:'), err.message);
                         sendRes(false, { error: err.message || 'Failed to generate code' });
+                        closeSock(sock);
                     }
                 }, 3000);
+
+                setTimeout(() => {
+                    if (!responded) sendRes(false, { error: "Pairing timeout. Try again." });
+                }, 45000);
             }
 
             sock.ev.on('connection.update', async ({ connection, lastDisconnect, isNewLogin }) => {
@@ -144,36 +133,27 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                     activeBots.delete(sessionId);
                     startingBots.delete(sessionId);
-
-                    // 🛑 Handshake Progress / Restart Required (515) Drop නොවී Reconnect කිරීම
-                    if (code === DisconnectReason.restartRequired || (!loggedOut && sock.authState?.creds?.registered)) {
-                        console.log(chalk.cyan(`[${BOT_TAG}] Handshake authenticating, reconnecting in 2s...`));
-                        setTimeout(() => startSingleBot(sessionId).catch(() => {}), 2000);
-                        return;
-                    }
-
                     closeSock(sock);
 
                     if (loggedOut) {
                         await clearSession().catch(() => {});
-                        pendingPairRequests.delete(sessionId);
-                    } else if (!phoneNumber) {
+                    } else {
+                        // 🛑 Handshake එක අතරතුර WhatsApp එකෙන් restart කරද්දී (515) Session එක drop නොවී reconnect වීම
+                        console.log(chalk.cyan(`[${BOT_TAG}] Reconnecting node [${sessionId}] in 3s...`));
                         setTimeout(() => startSingleBot(sessionId).catch(() => {}), 3000);
                     }
                 }
 
                 if (connection === 'open') {
-                    pendingPairRequests.delete(sessionId);
-                    pairingLocks.delete(sessionId);
                     startingBots.delete(sessionId);
                     activeBots.set(sessionId, sock);
-                    console.log(chalk.black.bgGreen.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED SUCCESSFULLY (SAFARI) `));
+                    console.log(chalk.black.bgGreen.bold(` [${BOT_TAG}] NODE [${sessionId}] LINKED SUCCESSFULLY! `));
 
                     if (isNewLogin) {
                         setTimeout(async () => {
                             const bNum = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
                             if (!bNum) return;
-                            const card = `╔══════════════════════╗\n   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️\n╚══════════════════════╝\n\n┌─〔 🟢 *CONNECTED* 〕\n├─▸ 🤖 Node: ${sessionId}\n├─▸ 📱 Bot: +${bNum}\n├─▸ 🌐 Engine: macOS Safari Core\n├─▸ 🔐 Prefix: [ ${PREFIX} ]\n└───────────────────────\n\n> 👑 *Dev:* Dinidu Heshan`;
+                            const card = `╔══════════════════════╗\n   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️️\n╚══════════════════════╝\n\n┌─〔 🟢 *CONNECTED* 〕\n├─▸ 🤖 Node: ${sessionId}\n├─▸ 📱 Bot: +${bNum}\n├─▸ 🔐 Prefix: [ ${PREFIX} ]\n└───────────────────────\n\n> 👑 *Dev:* Dinidu Heshan`;
                             await sock.sendMessage(`${bNum}@s.whatsapp.net`, { image: { url: "https://files.catbox.moe/k315x4.jpg" }, caption: card }).catch(() => {});
                         }, 4000);
                     }
@@ -280,15 +260,15 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
             return sock;
         } catch (e) {
-            pendingPairRequests.delete(sessionId); pairingLocks.delete(sessionId);
+            startingBots.delete(sessionId);
             sendRes(false, { error: e.message || 'Startup failed' });
             if (sock) closeSock(sock);
             throw e;
-        } finally { startingBots.delete(sessionId); }
+        }
     })();
 
-    startingBots.set(sessionId, p);
-    try { return await p; } finally { startingBots.delete(sessionId); }
+    startingBots.set(sessionId, bootPromise);
+    try { return await bootPromise; } finally { startingBots.delete(sessionId); }
 }
 
 async function autoReconnectAllBots() {
@@ -302,7 +282,7 @@ async function autoReconnectAllBots() {
     } catch (e) { console.error(chalk.red('Boot Error:'), e); }
 }
 
-// ================= Minimalist Cyber UI =================
+// ================= Minimalist Fast Cyber UI =================
 app.get('/', (req, res) => {
     res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${BOT_TAG} // ACCESS</title><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet"><style>:root{--p:#ff0044;--c:#00f0ff;--bg:#030307}*{box-sizing:border-box;margin:0;padding:0}body{background:radial-gradient(circle at 50% 15%,#18091a 0%,var(--bg) 85%);font-family:'Rajdhani',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff;padding:20px}.panel{width:100%;max-width:400px;background:rgba(12,13,22,.85);backdrop-filter:blur(25px);border:1px solid rgba(255,0,68,.3);border-radius:20px;padding:35px 25px;text-align:center;box-shadow:0 0 30px rgba(255,0,68,.2)}.title{font-family:'Orbitron',sans-serif;font-size:28px;color:var(--p);margin-bottom:6px}.sub{color:#8c8fa8;font-size:12px;letter-spacing:1px;margin-bottom:25px}input{width:100%;background:#090a12;border:1px solid #333;border-radius:10px;padding:14px;color:#fff;font-size:16px;outline:none;margin-bottom:15px;transition:.3s}input:focus{border-color:var(--p)}.btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--p),#aa0030);border:none;border-radius:10px;color:#fff;font-family:'Orbitron';font-weight:700;cursor:pointer;letter-spacing:1px;transition:.3s}.btn:disabled{opacity:.6}#box{display:none;margin-top:20px;background:rgba(0,240,255,.05);border:1px dashed var(--c);border-radius:12px;padding:15px}.code{font-family:'Orbitron';font-size:30px;color:var(--c);letter-spacing:6px;cursor:pointer;margin:5px 0}</style></head><body><div class="panel"><h1 class="title">${BOT_TAG}</h1><p class="sub">WHATSAPP LINK PORTAL</p><input type="text" id="phone" placeholder="947xxxxxxxx" autocomplete="off"><button class="btn" id="btn" onclick="gen()">GET PAIRING CODE</button><div id="box"><div style="font-size:11px;color:#2ed573;font-weight:bold;">⚡ CLICK CODE TO COPY</div><div class="code" id="code" onclick="copy()">--------</div><p style="font-size:11px;color:#8c8fa8">WhatsApp > Linked Devices > Link with phone number</p></div></div><script>async function gen(){const p=document.getElementById('phone').value.trim().replace(/[^0-9]/g,'');if(!p)return alert('Number එක ඇතුළත් කරන්න!');const btn=document.getElementById('btn');btn.disabled=true;btn.innerText='GENERATING CODE...';try{const r=await fetch('/pair?number='+encodeURIComponent(p)+'&botId=node_'+Math.floor(1000+Math.random()*9000));const d=await r.json();if(d.status&&d.pairingCode){document.getElementById('code').innerText=d.pairingCode;document.getElementById('box').style.display='block';if(navigator.clipboard)navigator.clipboard.writeText(d.pairingCode);btn.innerText='CODE READY!';}else alert(d.error||'Failed');}catch(e){alert('Server error! Try again.');btn.innerText='GET PAIRING CODE';}finally{btn.disabled=false;}}function copy(){const t=document.getElementById('code').innerText;if(t&&!t.includes('-')&&navigator.clipboard){navigator.clipboard.writeText(t);alert('Copied: '+t);}}</script></body></html>`);
 });
