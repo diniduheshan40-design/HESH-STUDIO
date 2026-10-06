@@ -48,6 +48,13 @@ global.videoSessions = global.videoSessions || new Map();
 global.songSessions = global.songSessions || new Map();
 global.menuSessions = global.menuSessions || new Map();
 
+// Global Bot Mode (public / private / group)
+global.botMode = global.botMode || "public";
+
+// Global Anti-Delete In-Memory Store
+global.antiDeleteConfig = global.antiDeleteConfig || { enabled: true };
+const messageMemoryStore = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
+
 // Global Developer Auto-React Setup
 global.devReactConfig = global.devReactConfig || {
     enabled: true,
@@ -271,6 +278,57 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             }
         });
 
+        // 🛑 ANTI-DELETE LISTENER (Detect Revoked Messages)
+        sock.ev.on('messages.update', async (mUpdates) => {
+            try {
+                if (!global.antiDeleteConfig?.enabled) return;
+
+                for (const update of mUpdates) {
+                    if (update.update?.messageStubType === 68 || update.update?.message === null) {
+                        const targetId = update.key.id;
+                        const cachedMsg = messageMemoryStore.get(targetId);
+
+                        if (!cachedMsg || !cachedMsg.message) continue;
+
+                        const chatJid = update.key.remoteJid;
+                        const deletedBy = update.key.participant || update.participant || chatJid;
+                        const cleanDeleter = String(deletedBy).split("@")[0].split(":")[0];
+                        const timeString = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo' });
+
+                        const noticeCard = 
+`╔══════════════════════╗
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
+╚══════════════════════╝
+
+┌─〔 🗑️ *DELETED MESSAGE DETECTED* 〕
+├─▸ 👤 *Deleted By* : @${cleanDeleter}
+├─▸ 🕒 *Time*       : ${timeString}
+├─▸ 📍 *Location*   : ${chatJid.endsWith("@g.us") ? "Group Chat" : "Private Chat"}
+└───────────────────────
+
+> ⚠️ *Intercepted deleted message content attached below:*`;
+
+                        await sock.sendMessage(chatJid, {
+                            text: noticeCard,
+                            mentions: [deletedBy]
+                        });
+
+                        await sock.copyNForward(chatJid, cachedMsg, false).catch(async () => {
+                            const msgContent = cachedMsg.message;
+                            if (msgContent.conversation || msgContent.extendedTextMessage?.text) {
+                                const textBody = msgContent.conversation || msgContent.extendedTextMessage?.text;
+                                await sock.sendMessage(chatJid, { text: `💬 *Message Content:* ${textBody}` });
+                            }
+                        });
+
+                        messageMemoryStore.del(targetId);
+                    }
+                }
+            } catch (delErr) {
+                console.error("[ANTI-DELETE ENGINE ERR]:", delErr.message);
+            }
+        });
+
         sock.ev.on('messages.upsert', async (chatUpdate) => {
             try {
                 if (!chatUpdate.messages || chatUpdate.type !== 'notify') return;
@@ -278,24 +336,30 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 for (const msg of chatUpdate.messages) {
                     if (!msg.message) continue;
 
-                    // Protocol & Edit Block (Ghost loop blocks)
-                    if (msg.message?.protocolMessage || msg.message?.editedMessage) continue;
+                    // 1. In-Memory Cache for Anti-Delete
+                    if (msg.key?.id) {
+                        messageMemoryStore.set(msg.key.id, msg);
+                    }
+
+                    // 2. Ghost Loop Blockers
+                    if (msg.message?.protocolMessage || msg.message?.editedMessage || msg.message?.reactionMessage) {
+                        continue;
+                    }
 
                     const from = msg.key.remoteJid;
                     const isFromMe = Boolean(msg.key.fromMe);
 
-                    // 🛑 BOT & DEVELOPER IDENTITY RESOLUTION
+                    // Identity & Sender Resolution
                     const botId = sock.user?.id || "";
                     const botNumber = botId.split(":")[0].replace(/[^0-9]/g, "");
 
-                    // Developer හෝ Sender JID extract කර ගැනීම
                     let senderJid = isFromMe 
                         ? `${botNumber}@s.whatsapp.net` 
                         : (msg.key.participant || msg.participant || from || "");
 
-                    // LID / Clean phone number separation
                     const cleanSender = String(senderJid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
                     const isDev = cleanSender === "94719845166" || cleanSender === "15947733680169" || senderJid.includes("94719845166");
+                    const isOwner = isFromMe || cleanSender === botNumber || isDev;
 
                     // DEVELOPER AUTO-REACT
                     if (global.devReactConfig && global.devReactConfig.enabled) {
@@ -368,7 +432,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 const dlUrl = dlData?.download_url || dlData?.audio || dlData?.url;
 
                                 if (!dlUrl) {
-                                    return await sock.sendMessage(from, { text: "❌ Audio Download Link එක සොයාගත නොහැකි විය." }, { quoted: msg });
+                                    return await sock.sendMessage(from, { text: "❌ Audio Download Link not found." }, { quoted: msg });
                                 }
 
                                 if (userReply === '1') {
@@ -396,7 +460,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 return;
 
                             } catch (e) {
-                                return await sock.sendMessage(from, { text: `❌ සින්දුව බාගත කිරීම අසාර්ථක විය: ${e.message}` }, { quoted: msg });
+                                return await sock.sendMessage(from, { text: `❌ Download Failed: ${e.message}` }, { quoted: msg });
                             }
                         }
                     }
@@ -474,7 +538,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                         if (userReply === '1') {
                             const dlUrl = fbData.hd || fbData.sd;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ HD Video එකක් ලබා ගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ HD Video not available." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
@@ -483,7 +547,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             return;
                         } else if (userReply === '2') {
                             const dlUrl = fbData.sd || fbData.hd;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ SD Video එකක් ලබා ගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ SD Video not available." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
@@ -492,7 +556,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             return;
                         } else if (userReply === '3') {
                             const dlUrl = fbData.audio || fbData.sd || fbData.hd;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Audio එක ලබා ගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Audio not available." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "🎙️", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 audio: { url: dlUrl },
@@ -512,34 +576,34 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                         if (userReply === '1') {
                             const dlUrl = ytData.video_360 || ytData.video || ytData.url;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 360p වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 360p video not found." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
                             const dlUrl = ytData.video_720 || ytData.video_hd || ytData.video || ytData.url;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 720p HD වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 720p HD video not found." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '3') {
                             const dlUrl = ytData.video_1080 || ytData.video_720 || ytData.video;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 1080p FHD වීඩියෝවක් සොයාගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ 1080p FHD video not found." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '4') {
                             const dlUrl = ytData.audio;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Audio එක ලබා ගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Audio not available." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "🎶", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 audio: { url: dlUrl },
@@ -550,7 +614,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             return;
                         } else if (userReply === '5') {
                             const dlUrl = ytData.audio || ytData.video;
-                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Document එකක් ලෙස ලබා ගත නොහැක." }, { quoted: msg });
+                            if (!dlUrl) return await sock.sendMessage(from, { text: "❌ Document file not available." }, { quoted: msg });
                             sock.sendMessage(from, { react: { text: "📁", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 document: { url: dlUrl },
@@ -562,54 +626,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
-                    // 🎬 YOUTUBE VIDEO QUALITY SESSIONS HANDLER
-                    // ==========================================
-                    if (quotedId && global.videoSessions && global.videoSessions.has(quotedId)) {
-                        const vSession = global.videoSessions.get(quotedId);
-                        const qualityMap = {
-                            "1": "1080p",
-                            "2": "720p",
-                            "3": "480p",
-                            "4": "360p"
-                        };
-
-                        if (qualityMap[userReply]) {
-                            const selectedQuality = qualityMap[userReply];
-                            sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
-
-                            try {
-                                const axios = require("axios");
-                                const dlApi = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(vSession.url)}&quality=${selectedQuality}&format=mp4&api_key=${vSession.apiKey || "chama_api_ec9848130d1aea209f08fb85e0b4720f"}`;
-                                
-                                const fetchRes = await axios.get(dlApi, { timeout: 45000 });
-                                const dlData = fetchRes.data?.data || fetchRes.data;
-                                const downloadUrl = dlData?.download_url || dlData?.url || dlData?.video;
-
-                                if (!downloadUrl) {
-                                    return await sock.sendMessage(from, { 
-                                        text: `❌ ${selectedQuality} සඳහා Download Link එකක් ලබාගත නොහැකි විය.` 
-                                    }, { quoted: msg });
-                                }
-
-                                await sock.sendMessage(from, {
-                                    video: { url: downloadUrl },
-                                    caption: `*🎬 DARK-DINU YOUTUBE VIDEO*\n📌 *Title:* ${vSession.title}\n📐 *Quality:* ${selectedQuality}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
-                                }, { quoted: msg });
-
-                                sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
-                                return;
-
-                            } catch (dlErr) {
-                                console.error("[YT QUALITY DL ERR]:", dlErr.message);
-                                return await sock.sendMessage(from, { 
-                                    text: `❌ Download කිරීම අසාර්ථක විය: ${dlErr.message}` 
-                                }, { quoted: msg });
-                            }
-                        }
-                    }
-
-                    // ==========================================
-                    // ⚙️ COMMAND & EMOJI ALIAS ROUTER (DEV & OWNER UNLOCKED)
+                    // ⚙️ COMMAND & EMOJI ALIAS ROUTER
                     // ==========================================
                     const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
                     const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
@@ -629,10 +646,22 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         continue;
                     }
 
+                    // 🛑 BOT MODE ENFORCEMENT
+                    // Mode is bypassed for Owner & Developer
+                    if (!isOwner) {
+                        const currentMode = global.botMode || "public";
+                        if (currentMode === "private") {
+                            continue; // Private mode: regular users are ignored
+                        }
+                        if (currentMode === "group" && !from.endsWith("@g.us")) {
+                            continue; // Group mode: private chats are ignored
+                        }
+                    }
+
                     if (command && commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
-                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | Sender: ${cleanSender}`));
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | Sender: ${cleanSender} | Mode: ${global.botMode}`));
                             
                             await cmdModule.execute({
                                 sock,
@@ -1055,6 +1084,7 @@ app.get('/status', (req, res) => {
     res.json({
         engine: BOT_TAG,
         activeCount: activeBots.size,
+        currentMode: global.botMode,
         nodes: Array.from(activeBots.keys()),
         loadedCommands: Array.from(commands.keys())
     });
