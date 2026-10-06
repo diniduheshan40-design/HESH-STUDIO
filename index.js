@@ -16,6 +16,7 @@ const {
     delay
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
+const doctor = require('./doctor');
 
 // Global Crash Handlers
 process.on('uncaughtException', (err) => {
@@ -580,7 +581,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -589,7 +590,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '3') {
@@ -598,7 +599,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '4') {
@@ -626,9 +627,56 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
+                    // 🎬 YOUTUBE VIDEO QUALITY SESSIONS HANDLER
+                    // ==========================================
+                    if (quotedId && global.videoSessions && global.videoSessions.has(quotedId)) {
+                        const vSession = global.videoSessions.get(quotedId);
+                        const qualityMap = {
+                            "1": "1080p",
+                            "2": "720p",
+                            "3": "480p",
+                            "4": "360p"
+                        };
+
+                        if (qualityMap[userReply]) {
+                            const selectedQuality = qualityMap[userReply];
+                            sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
+
+                            try {
+                                const axios = require("axios");
+                                const dlApi = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(vSession.url)}&quality=${selectedQuality}&format=mp4&api_key=${vSession.apiKey || "chama_api_ec9848130d1aea209f08fb85e0b4720f"}`;
+                                
+                                const fetchRes = await axios.get(dlApi, { timeout: 45000 });
+                                const dlData = fetchRes.data?.data || fetchRes.data;
+                                const downloadUrl = dlData?.download_url || dlData?.url || dlData?.video;
+
+                                if (!downloadUrl) {
+                                    return await sock.sendMessage(from, { 
+                                        text: `❌ ${selectedQuality} සඳහා Download Link එකක් ලබාගත නොහැකි විය.` 
+                                    }, { quoted: msg });
+                                }
+
+                                await sock.sendMessage(from, {
+                                    video: { url: downloadUrl },
+                                    caption: `*🎬 DARK-DINU YOUTUBE VIDEO*\n📌 *Title:* ${vSession.title}\n📐 *Quality:* ${selectedQuality}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
+                                }, { quoted: msg });
+
+                                sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
+                                return;
+
+                            } catch (dlErr) {
+                                console.error("[YT QUALITY DL ERR]:", dlErr.message);
+                                return await sock.sendMessage(from, { 
+                                    text: `❌ Download කිරීම අසාර්ථක විය: ${dlErr.message}` 
+                                }, { quoted: msg });
+                            }
+                        }
+                    }
+
+                    // ==========================================
                     // ⚙️ COMMAND & EMOJI ALIAS ROUTER
                     // ==========================================
-                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
+                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️️", "👍"];
                     const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
 
                     let command = '';
@@ -677,7 +725,14 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
-                            console.error(chalk.red(`[CMD ERROR - ${command}]:`), err);
+                            // 🚑 AUTO-REPAIR & HEALING TRIGGER
+                            await doctor.handleCommandError({
+                                error: err,
+                                commandName: command,
+                                sock,
+                                from,
+                                msg
+                            });
                         }
                     }
                 }
