@@ -15,30 +15,22 @@ async function useMongoAuthState(sessionId) {
         try {
             await SessionModel.findOneAndUpdate(
                 { sessionId, id },
-                { data: JSON.stringify(data, BufferJSON.replacer) },
-                { upsert: true, returnDocument: 'after' }
+                { $set: { data: JSON.stringify(data, BufferJSON.replacer) } },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
             );
-        } catch (err) {
-            console.error(`[AUTH WRITE ERR] ${id}:`, err.message);
-        }
+        } catch (e) { console.error(`[AUTH WRITE ERR] ${sessionId}/${id}:`, e.message); }
     };
 
     const readData = async (id) => {
         try {
             const doc = await SessionModel.findOne({ sessionId, id }).lean();
-            if (doc && doc.data) {
-                return JSON.parse(doc.data, BufferJSON.reviver);
-            }
-            return null;
-        } catch (err) {
-            return null;
-        }
+            return doc?.data ? JSON.parse(doc.data, BufferJSON.reviver) : null;
+        } catch (e) { console.error(`[AUTH READ ERR] ${sessionId}/${id}:`, e.message); return null; }
     };
 
     const removeData = async (id) => {
-        try {
-            await SessionModel.deleteOne({ sessionId, id });
-        } catch (err) {}
+        try { await SessionModel.deleteOne({ sessionId, id }); } 
+        catch (e) { console.error(`[AUTH REMOVE ERR] ${sessionId}/${id}:`, e.message); }
     };
 
     const creds = (await readData('creds')) || initAuthCreds();
@@ -49,24 +41,20 @@ async function useMongoAuthState(sessionId) {
             keys: {
                 get: async (type, ids) => {
                     const data = {};
-                    await Promise.all(
-                        ids.map(async (id) => {
-                            let value = await readData(`${type}-${id}`);
-                            if (type === 'app-state-sync-key' && value) {
-                                value = proto.Message.AppStateSyncKeyData.fromObject(value);
-                            }
-                            data[id] = value;
-                        })
-                    );
+                    await Promise.all(ids.map(async (id) => {
+                        let value = await readData(`${type}-${id}`);
+                        if (type === 'app-state-sync-key' && value) value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                        data[id] = value;
+                    }));
                     return data;
                 },
                 set: async (data) => {
                     const tasks = [];
                     for (const category in data) {
                         for (const id in data[category]) {
-                            const value = data[category][id];
+                            const val = data[category][id];
                             const key = `${category}-${id}`;
-                            tasks.push(value ? writeData(value, key) : removeData(key));
+                            tasks.push(val ? writeData(val, key) : removeData(key));
                         }
                     }
                     await Promise.all(tasks);
@@ -77,7 +65,8 @@ async function useMongoAuthState(sessionId) {
         clearSession: async () => {
             try {
                 await SessionModel.deleteMany({ sessionId });
-            } catch (err) {}
+                console.log(`[AUTH] Session cleared: ${sessionId}`);
+            } catch (e) { console.error(`[AUTH CLEAR ERR] ${sessionId}:`, e.message); }
         }
     };
 }
