@@ -17,7 +17,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
 
-// 🛑 Terminal Buffer Hang Freeze Fix
+// 🛑 Terminal Buffer Hang & PreKey Flood Filter (Render Deadlock Fix)
 const originalConsoleLog = console.log;
 console.log = function(...args) {
     if (typeof args[0] === 'string' && (args[0].includes('Closing session: SessionEntry') || args[0].includes('SessionEntry {'))) {
@@ -160,7 +160,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             version,
             logger: pino({ level: 'fatal' }),
             printQRInTerminal: false,
-            browser: Browsers.ubuntu('Chrome'),
+            browser: ['Ubuntu', 'Chrome', '124.0.0.0'],
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' })),
@@ -287,7 +287,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 for (const msg of chatUpdate.messages) {
                     if (!msg.message) continue;
 
-                    // Protocol Messages Ignore කිරීම (Loop Block)
+                    // Protocol Messages Ignore කිරීම (Ghost loop block)
                     if (msg.message?.protocolMessage || msg.message?.reactionMessage) continue;
 
                     const from = msg.key.remoteJid;
@@ -521,7 +521,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -530,7 +530,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '3') {
@@ -539,7 +539,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝐍𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '4') {
@@ -614,7 +614,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
-                    // ⚙️ COMMAND ROUTER
+                    // ⚙️ COMMAND ROUTER (DIRECT & FAST)
                     // ==========================================
                     let command = '';
                     let args = [];
@@ -1063,12 +1063,11 @@ app.get('/status', (req, res) => {
     });
 });
 
-// 🛑 1. මුලින්ම Express Server එක Listen කර Render Health Check පාස් කිරීම
+// Port Listen & DB Boot
 app.listen(PORT, () => {
     console.log(chalk.cyan(`[${BOT_TAG}] SERVER OPERATIONAL ON PORT ${PORT}`));
 });
 
-// 🛑 2. ඉන්පසු MongoDB Connect කර Sessions එකින් එක Safe Boot කිරීම
 mongoose.connect(MONGO_URL)
     .then(async () => {
         console.log(chalk.red.bold(`[${BOT_TAG}] MONGODB CLUSTER AUTHENTICATED.`));
