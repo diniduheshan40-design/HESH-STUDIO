@@ -16,16 +16,6 @@ const {
     delay
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState, SessionModel } = require('./auth');
-const doctor = require('./doctor');
-
-// 🛑 LIBSIGNAL SESSION SPAM LOG FILTER (Render Buffer Freeze Fix)
-const originalConsoleLog = console.log;
-console.log = function(...args) {
-    if (typeof args[0] === 'string' && (args[0].includes('Closing session: SessionEntry') || args[0].includes('SessionEntry {'))) {
-        return;
-    }
-    originalConsoleLog.apply(console, args);
-};
 
 // Global Crash Handlers
 process.on('uncaughtException', (err) => {
@@ -243,7 +233,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                             const ownerCard = 
 `╔══════════════════════╗
-   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️️
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
 ╚══════════════════════╝
 
 ┌─〔 🟢 *NODE CONNECTED SUCCESSFULLY* 〕
@@ -351,8 +341,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         messageMemoryStore.set(msg.key.id, msg);
                     }
 
-                    // 2. Ignore Protocol Messages (Reactions & Revokes) to prevent loops
-                    if (msg.message?.protocolMessage || msg.message?.reactionMessage) {
+                    // 2. Ghost Loop Blockers
+                    if (msg.message?.protocolMessage || msg.message?.editedMessage || msg.message?.reactionMessage) {
                         continue;
                     }
 
@@ -590,7 +580,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -636,8 +626,11 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
-                    // ⚙️ COMMAND ROUTER (DIRECT TRIGGER)
+                    // ⚙️ COMMAND & EMOJI ALIAS ROUTER
                     // ==========================================
+                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
+                    const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
+
                     let command = '';
                     let args = [];
 
@@ -646,21 +639,29 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         const parts = cleanBody.split(/ +/);
                         command = (parts[0] || "").toLowerCase();
                         args = parts.slice(1);
+                    } else if (emojiAliases.includes(body.trim()) && hasQuoted) {
+                        command = body.trim();
+                        args = [];
                     } else {
                         continue;
                     }
 
-                    // Mode Enforcement (Owner/Dev is strictly exempted)
+                    // 🛑 BOT MODE ENFORCEMENT
+                    // Mode is bypassed for Owner & Developer
                     if (!isOwner) {
                         const currentMode = global.botMode || "public";
-                        if (currentMode === "private") continue;
-                        if (currentMode === "group" && !from.endsWith("@g.us")) continue;
+                        if (currentMode === "private") {
+                            continue; // Private mode: regular users are ignored
+                        }
+                        if (currentMode === "group" && !from.endsWith("@g.us")) {
+                            continue; // Group mode: private chats are ignored
+                        }
                     }
 
                     if (command && commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
-                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | Sender: ${cleanSender}`));
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | Sender: ${cleanSender} | Mode: ${global.botMode}`));
                             
                             await cmdModule.execute({
                                 sock,
@@ -676,13 +677,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
-                            await doctor.handleCommandError({
-                                error: err,
-                                commandName: command,
-                                sock,
-                                from,
-                                msg
-                            });
+                            console.error(chalk.red(`[CMD ERROR - ${command}]:`), err);
                         }
                     }
                 }
@@ -698,18 +693,13 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     }
 }
 
-// 🛑 SAFE STAGGERED RECONNECT (Corrupt Nodes Skip & Deadlock Prevent)
 async function autoReconnectAllBots() {
     try {
         const sessions = await SessionModel.distinct('sessionId');
         console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
         for (const id of sessions) {
-            try {
-                await startSingleBot(id);
-            } catch (nodeErr) {
-                console.error(chalk.red(`Failed to start node [${id}]:`), nodeErr.message);
-            }
-            await delay(3500); // Node එකකට තත්පර 3.5 ක buffer එකක් දී launch කිරීම
+            startSingleBot(id);
+            await delay(2500);
         }
     } catch (err) {
         console.error(chalk.red('Boot Error:'), err);
