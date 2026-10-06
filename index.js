@@ -18,6 +18,15 @@ const {
 const { useMongoAuthState, SessionModel } = require('./auth');
 const doctor = require('./doctor');
 
+// 🛑 LIBSIGNAL SESSION SPAM LOG FILTER (Render Log Buffer Deadlock Fix)
+const originalConsoleLog = console.log;
+console.log = function(...args) {
+    if (typeof args[0] === 'string' && (args[0].includes('Closing session: SessionEntry') || args[0].includes('SessionEntry {'))) {
+        return;
+    }
+    originalConsoleLog.apply(console, args);
+};
+
 // Global Crash Handlers
 process.on('uncaughtException', (err) => {
     console.error(chalk.red('[UNCAUGHT EXCEPTION]:'), err.message || err);
@@ -234,7 +243,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                             const ownerCard = 
 `╔══════════════════════╗
-   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️
+   🕷️ 𝐃 𝐀 𝐑 𝐊 - 𝐃 𝐈 𝐍 𝐔 🕷️️
 ╚══════════════════════╝
 
 ┌─〔 🟢 *NODE CONNECTED SUCCESSFULLY* 〕
@@ -581,7 +590,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -590,7 +599,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⚡", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 720p HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '3') {
@@ -599,7 +608,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "🔥", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝐈𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 1080p Full HD\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '4') {
@@ -674,9 +683,9 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
-                    // ⚙️ COMMAND & EMOJI ALIAS ROUTER
+                    // ⚙️️ COMMAND & EMOJI ALIAS ROUTER
                     // ==========================================
-                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️️", "👍"];
+                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
                     const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
 
                     let command = '';
@@ -748,13 +757,18 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
     }
 }
 
+// 🛑 SAFE STAGGERED RECONNECT (Corrupt Nodes Skip & Deadlock Prevent)
 async function autoReconnectAllBots() {
     try {
         const sessions = await SessionModel.distinct('sessionId');
         console.log(chalk.cyan(`[${BOT_TAG}] Found ${sessions.length} sessions to bootstrap.`));
         for (const id of sessions) {
-            startSingleBot(id);
-            await delay(2500);
+            try {
+                await startSingleBot(id);
+            } catch (nodeErr) {
+                console.error(chalk.red(`Failed to start node [${id}]:`), nodeErr.message);
+            }
+            await delay(3500); // Node එකකට තත්පර 3.5 ක buffer එකක් දී launch කිරීම
         }
     } catch (err) {
         console.error(chalk.red('Boot Error:'), err);
