@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
 
-// MongoDB Session Schema
 const sessionSchema = new mongoose.Schema({
     sessionId: { type: String, required: true },
     id: { type: String, required: true },
@@ -11,20 +10,16 @@ const sessionSchema = new mongoose.Schema({
 sessionSchema.index({ sessionId: 1, id: 1 }, { unique: true });
 const SessionModel = mongoose.models.Session || mongoose.model('Session', sessionSchema);
 
-/**
- * Stable & Atomic Baileys Mongo Auth Engine
- */
 async function useMongoAuthState(sessionId) {
     const writeData = async (data, id) => {
         try {
-            const serialized = JSON.stringify(data, BufferJSON.replacer);
             await SessionModel.findOneAndUpdate(
                 { sessionId, id },
-                { $set: { data: serialized } },
+                { data: JSON.stringify(data, BufferJSON.replacer) },
                 { upsert: true, returnDocument: 'after' }
             );
         } catch (err) {
-            console.error(`[AUTH WRITE ERR] Key: ${id}:`, err.message);
+            console.error(`[AUTH WRITE ERR] ${id}:`, err.message);
         }
     };
 
@@ -36,7 +31,6 @@ async function useMongoAuthState(sessionId) {
             }
             return null;
         } catch (err) {
-            console.error(`[AUTH READ ERR] Key: ${id}:`, err.message);
             return null;
         }
     };
@@ -44,13 +38,10 @@ async function useMongoAuthState(sessionId) {
     const removeData = async (id) => {
         try {
             await SessionModel.deleteOne({ sessionId, id });
-        } catch (err) {
-            console.error(`[AUTH REMOVE ERR] Key: ${id}:`, err.message);
-        }
+        } catch (err) {}
     };
 
-    const credsData = await readData('creds');
-    const creds = credsData || initAuthCreds();
+    const creds = (await readData('creds')) || initAuthCreds();
 
     return {
         state: {
@@ -86,9 +77,7 @@ async function useMongoAuthState(sessionId) {
         clearSession: async () => {
             try {
                 await SessionModel.deleteMany({ sessionId });
-            } catch (err) {
-                console.error("[AUTH CLEAR ERR]:", err.message);
-            }
+            } catch (err) {}
         }
     };
 }
