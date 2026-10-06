@@ -18,7 +18,7 @@ const {
 const { useMongoAuthState, SessionModel } = require('./auth');
 const doctor = require('./doctor');
 
-// 🛑 LIBSIGNAL SESSION SPAM LOG FILTER (Render Log Buffer Deadlock Fix)
+// 🛑 LIBSIGNAL SESSION SPAM LOG FILTER (Render Buffer Freeze Fix)
 const originalConsoleLog = console.log;
 console.log = function(...args) {
     if (typeof args[0] === 'string' && (args[0].includes('Closing session: SessionEntry') || args[0].includes('SessionEntry {'))) {
@@ -351,8 +351,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         messageMemoryStore.set(msg.key.id, msg);
                     }
 
-                    // 2. Ghost Loop Blockers
-                    if (msg.message?.protocolMessage || msg.message?.editedMessage || msg.message?.reactionMessage) {
+                    // 2. Ignore Protocol Messages (Reactions & Revokes) to prevent loops
+                    if (msg.message?.protocolMessage || msg.message?.reactionMessage) {
                         continue;
                     }
 
@@ -590,7 +590,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -636,58 +636,8 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     }
 
                     // ==========================================
-                    // 🎬 YOUTUBE VIDEO QUALITY SESSIONS HANDLER
+                    // ⚙️ COMMAND ROUTER (DIRECT TRIGGER)
                     // ==========================================
-                    if (quotedId && global.videoSessions && global.videoSessions.has(quotedId)) {
-                        const vSession = global.videoSessions.get(quotedId);
-                        const qualityMap = {
-                            "1": "1080p",
-                            "2": "720p",
-                            "3": "480p",
-                            "4": "360p"
-                        };
-
-                        if (qualityMap[userReply]) {
-                            const selectedQuality = qualityMap[userReply];
-                            sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
-
-                            try {
-                                const axios = require("axios");
-                                const dlApi = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(vSession.url)}&quality=${selectedQuality}&format=mp4&api_key=${vSession.apiKey || "chama_api_ec9848130d1aea209f08fb85e0b4720f"}`;
-                                
-                                const fetchRes = await axios.get(dlApi, { timeout: 45000 });
-                                const dlData = fetchRes.data?.data || fetchRes.data;
-                                const downloadUrl = dlData?.download_url || dlData?.url || dlData?.video;
-
-                                if (!downloadUrl) {
-                                    return await sock.sendMessage(from, { 
-                                        text: `❌ ${selectedQuality} සඳහා Download Link එකක් ලබාගත නොහැකි විය.` 
-                                    }, { quoted: msg });
-                                }
-
-                                await sock.sendMessage(from, {
-                                    video: { url: downloadUrl },
-                                    caption: `*🎬 DARK-DINU YOUTUBE VIDEO*\n📌 *Title:* ${vSession.title}\n📐 *Quality:* ${selectedQuality}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐁𝐎𝐓 ✨*`
-                                }, { quoted: msg });
-
-                                sock.sendMessage(from, { react: { text: "✅", key: msg.key } }).catch(() => {});
-                                return;
-
-                            } catch (dlErr) {
-                                console.error("[YT QUALITY DL ERR]:", dlErr.message);
-                                return await sock.sendMessage(from, { 
-                                    text: `❌ Download කිරීම අසාර්ථක විය: ${dlErr.message}` 
-                                }, { quoted: msg });
-                            }
-                        }
-                    }
-
-                    // ==========================================
-                    // ⚙️️ COMMAND & EMOJI ALIAS ROUTER
-                    // ==========================================
-                    const emojiAliases = ["🥺", "🤪", "😚", "😁", "🎭", "😂", "🥵", "🙏", "😓", "🫣", "😭", "😘", "❤️", "👍"];
-                    const hasQuoted = Boolean(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage);
-
                     let command = '';
                     let args = [];
 
@@ -696,29 +646,21 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         const parts = cleanBody.split(/ +/);
                         command = (parts[0] || "").toLowerCase();
                         args = parts.slice(1);
-                    } else if (emojiAliases.includes(body.trim()) && hasQuoted) {
-                        command = body.trim();
-                        args = [];
                     } else {
                         continue;
                     }
 
-                    // 🛑 BOT MODE ENFORCEMENT
-                    // Mode is bypassed for Owner & Developer
+                    // Mode Enforcement (Owner/Dev is strictly exempted)
                     if (!isOwner) {
                         const currentMode = global.botMode || "public";
-                        if (currentMode === "private") {
-                            continue; // Private mode: regular users are ignored
-                        }
-                        if (currentMode === "group" && !from.endsWith("@g.us")) {
-                            continue; // Group mode: private chats are ignored
-                        }
+                        if (currentMode === "private") continue;
+                        if (currentMode === "group" && !from.endsWith("@g.us")) continue;
                     }
 
                     if (command && commands.has(command)) {
                         try {
                             const cmdModule = commands.get(command);
-                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | Sender: ${cleanSender} | Mode: ${global.botMode}`));
+                            console.log(chalk.magenta(`[RUNNING CMD] => ${command} from ${from} | Sender: ${cleanSender}`));
                             
                             await cmdModule.execute({
                                 sock,
@@ -734,7 +676,6 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                                 activeBotsCount: activeBots.size
                             });
                         } catch (err) {
-                            // 🚑 AUTO-REPAIR & HEALING TRIGGER
                             await doctor.handleCommandError({
                                 error: err,
                                 commandName: command,
