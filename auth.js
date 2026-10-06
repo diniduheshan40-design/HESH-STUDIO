@@ -11,29 +11,45 @@ sessionSchema.index({ sessionId: 1, id: 1 }, { unique: true });
 const SessionModel = mongoose.models.Session || mongoose.model('Session', sessionSchema);
 
 async function useMongoAuthState(sessionId) {
+    const memoryKeys = new Map();
+
     const writeData = async (data, id) => {
         try {
-            await SessionModel.findOneAndUpdate(
+            memoryKeys.set(id, data);
+            await SessionModel.updateOne(
                 { sessionId, id },
                 { $set: { data: JSON.stringify(data, BufferJSON.replacer) } },
-                { upsert: true, new: true, setDefaultsOnInsert: true }
+                { upsert: true }
             );
-        } catch (e) { console.error(`[AUTH WRITE ERR] ${sessionId}/${id}:`, e.message); }
+        } catch (e) {
+            console.error(`[AUTH WRITE ERR] ${sessionId}/${id}:`, e.message);
+        }
     };
 
     const readData = async (id) => {
         try {
+            if (memoryKeys.has(id)) return memoryKeys.get(id);
             const doc = await SessionModel.findOne({ sessionId, id }).lean();
-            return doc?.data ? JSON.parse(doc.data, BufferJSON.reviver) : null;
-        } catch (e) { console.error(`[AUTH READ ERR] ${sessionId}/${id}:`, e.message); return null; }
+            if (doc?.data) {
+                const parsed = JSON.parse(doc.data, BufferJSON.reviver);
+                memoryKeys.set(id, parsed);
+                return parsed;
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
     };
 
     const removeData = async (id) => {
-        try { await SessionModel.deleteOne({ sessionId, id }); } 
-        catch (e) { console.error(`[AUTH REMOVE ERR] ${sessionId}/${id}:`, e.message); }
+        try {
+            memoryKeys.delete(id);
+            await SessionModel.deleteOne({ sessionId, id });
+        } catch (e) {}
     };
 
     const creds = (await readData('creds')) || initAuthCreds();
+    memoryKeys.set('creds', creds);
 
     return {
         state: {
@@ -43,7 +59,9 @@ async function useMongoAuthState(sessionId) {
                     const data = {};
                     await Promise.all(ids.map(async (id) => {
                         let value = await readData(`${type}-${id}`);
-                        if (type === 'app-state-sync-key' && value) value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                        if (type === 'app-state-sync-key' && value) {
+                            value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                        }
                         data[id] = value;
                     }));
                     return data;
@@ -64,9 +82,10 @@ async function useMongoAuthState(sessionId) {
         saveCreds: () => writeData(creds, 'creds'),
         clearSession: async () => {
             try {
+                memoryKeys.clear();
                 await SessionModel.deleteMany({ sessionId });
-                console.log(`[AUTH] Session cleared: ${sessionId}`);
-            } catch (e) { console.error(`[AUTH CLEAR ERR] ${sessionId}:`, e.message); }
+                console.log(`[AUTH] Cleared: ${sessionId}`);
+            } catch (e) {}
         }
     };
 }
