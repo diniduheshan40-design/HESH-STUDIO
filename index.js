@@ -1,21 +1,24 @@
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const mongoose = require('mongoose');
-const express = require('express');
-const chalk = require('chalk');
-const pino = require('pino');
-const cors = require('cors');
-const NodeCache = require('node-cache');
-const {
-    default: makeWASocket,
+import 'dotenv/config';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
+import express from 'express';
+import chalk from 'chalk';
+import pino from 'pino';
+import cors from 'cors';
+import NodeCache from 'node-cache';
+import makeWASocket, {
     DisconnectReason,
     fetchLatestBaileysVersion,
     makeCacheableSignalKeyStore,
     Browsers,
     delay
-} = require('@whiskeysockets/baileys');
-const { useMongoAuthState, SessionModel } = require('./auth');
+} from '@whiskeysockets/baileys';
+import { useMongoAuthState, SessionModel } from './auth.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 🛑 Terminal Buffer Hang Freeze Fix
 const originalConsoleLog = console.log;
@@ -73,7 +76,7 @@ function getCommandDirectory() {
     return defaultPath;
 }
 
-function loadCommands() {
+async function loadCommands() {
     commands.clear();
     const cmdDir = getCommandDirectory();
     try {
@@ -82,8 +85,9 @@ function loadCommands() {
             if (file.endsWith('.js')) {
                 try {
                     const filePath = path.join(cmdDir, file);
-                    delete require.cache[require.resolve(filePath)];
-                    const cmd = require(filePath);
+                    const fileUrl = `file://${filePath}?update=${Date.now()}`;
+                    const module = await import(fileUrl);
+                    const cmd = module.default || module;
                     if (cmd && cmd.name && typeof cmd.execute === 'function') {
                         const mainName = cmd.name.toLowerCase();
                         commands.set(mainName, cmd);
@@ -100,7 +104,7 @@ function loadCommands() {
         console.error(chalk.red(`[DIRECTORY ERROR]:`), dirErr.message);
     }
 }
-loadCommands();
+await loadCommands();
 
 try {
     const watchDir = getCommandDirectory();
@@ -108,8 +112,8 @@ try {
     fs.watch(watchDir, (eventType, filename) => {
         if (filename && filename.endsWith('.js')) {
             clearTimeout(reloadDebounce);
-            reloadDebounce = setTimeout(() => {
-                loadCommands();
+            reloadDebounce = setTimeout(async () => {
+                await loadCommands();
             }, 300);
         }
     });
@@ -160,7 +164,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             version,
             logger: pino({ level: 'fatal' }),
             printQRInTerminal: false,
-            browser: Browsers.ubuntu('Chrome'),
+            browser: Browsers.windows('Desktop'),
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' })),
@@ -172,7 +176,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
             getMessage: async () => undefined,
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 25000
+            keepAliveIntervalMs: 15000
         });
 
         if (!sock.authState.creds.registered && phoneNumber) {
@@ -183,8 +187,9 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                 try {
                     console.log(chalk.cyan(`[${BOT_TAG}] Requesting Pairing Code for: ${cleanNumber}`));
                     const code = await sock.requestPairingCode(cleanNumber);
-                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully: ${code}`));
-                    sendResponse(true, { sessionId, pairingCode: code });
+                    const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+                    console.log(chalk.green(`[${BOT_TAG}] Code Generated Successfully: ${formattedCode}`));
+                    sendResponse(true, { sessionId, pairingCode: formattedCode });
                 } catch (err) {
                     console.error(chalk.red(`[PAIRING ERROR]:`), err.message);
                     sendResponse(false, { error: err.message || 'Failed to request pairing code' });
@@ -286,16 +291,12 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
 
                 for (const msg of chatUpdate.messages) {
                     if (!msg.message) continue;
-
-                    // Protocol Messages Ignore කිරීම (Loop Block)
                     if (msg.message?.protocolMessage || msg.message?.reactionMessage) continue;
 
                     const from = msg.key.remoteJid;
                     const isFromMe = Boolean(msg.key.fromMe);
-
                     const botNumber = (sock.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
                     
-                    // Sender අංකය නිවැරදිව ලබා ගැනීම
                     let senderJid = isFromMe 
                         ? `${botNumber}@s.whatsapp.net` 
                         : (msg.key.participant || msg.participant || from || "");
@@ -355,9 +356,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                     const quotedId = quotedContext?.stanzaId;
                     const userReply = body.trim();
 
-                    // ==========================================
-                    // 🎵 SONG INTERACTIVE REPLY HANDLER
-                    // ==========================================
+                    // SONG INTERACTIVE REPLY HANDLER
                     if (quotedId && global.songSessions && global.songSessions.has(quotedId)) {
                         const songData = global.songSessions.get(quotedId);
 
@@ -365,7 +364,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
                             try {
-                                const axios = require("axios");
+                                const { default: axios } = await import("axios");
                                 const apiKey = "chama_api_ec9848130d1aea209f08fb85e0b4720f";
                                 const apiUrl = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(songData.url)}&quality=360p&format=mp3&api_key=${apiKey}`;
 
@@ -407,9 +406,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 📜 MENU PANEL INTERACTIVE HANDLER
-                    // ==========================================
+                    // MENU PANEL INTERACTIVE HANDLER
                     if (quotedId && global.menuSessions && global.menuSessions.has(quotedId)) {
                         const menuActions = {
                             "1": "general",
@@ -441,9 +438,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 🎵 TIKTOK INTERACTIVE REPLY DOWNLOADER
-                    // ==========================================
+                    // TIKTOK INTERACTIVE REPLY DOWNLOADER
                     if (quotedId && global.ttCache && global.ttCache.has(quotedId)) {
                         const ttData = global.ttCache.get(quotedId);
 
@@ -472,9 +467,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 🎬 FACEBOOK INTERACTIVE REPLY DOWNLOADER
-                    // ==========================================
+                    // FACEBOOK INTERACTIVE REPLY DOWNLOADER
                     if (quotedId && global.fbSessions && global.fbSessions.has(quotedId)) {
                         const fbData = global.fbSessions.get(quotedId);
 
@@ -510,9 +503,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 🎥 YOUTUBE INTERACTIVE REPLY DOWNLOADER
-                    // ==========================================
+                    // YOUTUBE INTERACTIVE REPLY DOWNLOADER
                     if (quotedId && global.ytSessions && global.ytSessions.has(quotedId)) {
                         const ytData = global.ytSessions.get(quotedId);
 
@@ -522,7 +513,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
                             await sock.sendMessage(from, {
                                 video: { url: dlUrl },
-                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱️️ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
+                                caption: `*🎬 ${ytData.title}*\n\n📐 *Quality:* 360p Standard\n⏱ *Duration:* ${ytData.duration || "N/A"}\n\n> *𝐃𝙍𝕶 𝑫𝙄𝙉𝙐 𝐘𝐎𝐔𝐓𝐔𝐁𝐄 ✨*`
                             }, { quoted: msg });
                             return;
                         } else if (userReply === '2') {
@@ -567,9 +558,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // 🎬 YOUTUBE VIDEO QUALITY SESSIONS HANDLER
-                    // ==========================================
+                    // YOUTUBE VIDEO QUALITY SESSIONS HANDLER
                     if (quotedId && global.videoSessions && global.videoSessions.has(quotedId)) {
                         const vSession = global.videoSessions.get(quotedId);
                         const qualityMap = {
@@ -584,7 +573,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                             sock.sendMessage(from, { react: { text: "⏳", key: msg.key } }).catch(() => {});
 
                             try {
-                                const axios = require("axios");
+                                const { default: axios } = await import("axios");
                                 const dlApi = `https://api.chamindu.site/api/v1/youtube/download?url=${encodeURIComponent(vSession.url)}&quality=${selectedQuality}&format=mp4&api_key=${vSession.apiKey || "chama_api_ec9848130d1aea209f08fb85e0b4720f"}`;
                                 
                                 const fetchRes = await axios.get(dlApi, { timeout: 45000 });
@@ -614,9 +603,7 @@ async function startSingleBot(sessionId, phoneNumber = null, res = null) {
                         }
                     }
 
-                    // ==========================================
-                    // ⚙️ COMMAND ROUTER
-                    // ==========================================
+                    // COMMAND ROUTER
                     let command = '';
                     let args = [];
 
@@ -681,8 +668,7 @@ async function autoReconnectAllBots() {
     }
 }
 
-// ================= Ultra-Clean Minimalist Cyber UI =================
-
+// UI Setup
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
